@@ -15,6 +15,22 @@ A native macOS two-panel file manager that works like [Midnight Commander](https
 
 See [`docs/SPEC.md`](docs/SPEC.md) for the full specification and known limitations.
 
+## Install
+
+Apple Silicon (M-series) Macs only. With [Homebrew](https://brew.sh):
+
+```sh
+brew tap say-kaj/tap
+brew install --cask mycommander
+```
+
+Update later with `brew upgrade --cask mycommander`; `brew outdated --cask` shows what is outdated.
+Remove with `brew uninstall --cask mycommander` (add `--zap` to delete settings too).
+
+Without Homebrew: download `myCommander-<version>-macos-arm64.zip` from the
+[Releases](https://github.com/say-kaj/MyCommander/releases) page, unzip, move `myCommander.app` to
+`/Applications` and open it with right-click → Open the first time (the app is ad-hoc signed, not notarized).
+
 ## Build and run
 
 Requires macOS on Apple Silicon (M-series, arm64) and a recent stable Rust toolchain. Intel Macs are not supported.
@@ -24,6 +40,8 @@ cargo run --release -- [left-dir] [right-dir]
 ```
 
 Settings are stored in `~/Library/Application Support/myCommander/`.
+
+To build the `.app` bundle and release zip: `scripts/package.sh` (icon: `scripts/make_icon.py`).
 
 ## Contributing
 

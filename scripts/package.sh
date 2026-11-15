@@ -6,7 +6,8 @@ cd "$(dirname "$0")/.."
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 cargo build --release
 APP=dist/myCommander.app
-rm -rf dist && mkdir -p "$APP/Contents/MacOS"
+rm -rf dist && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp "${CARGO_TARGET_DIR:-target}/release/myCommander" "$APP/Contents/MacOS/myCommander"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -15,6 +16,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleName</key><string>myCommander</string>
   <key>CFBundleDisplayName</key><string>myCommander</string>
   <key>CFBundleIdentifier</key><string>io.github.say-kaj.mycommander</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleExecutable</key><string>myCommander</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
