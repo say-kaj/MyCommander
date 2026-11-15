@@ -18,7 +18,7 @@ two side-by-side file panels, function-key driven file operations, quick keyboar
 navigation – but is a real GUI app, not a terminal program. Name: **myCommander**.
 
 **Stack.** Rust 2021, `eframe`/`egui` 0.31 (glow backend), `muda` for the native
-macOS menu bar. No other UI toolkit.
+macOS menu bar, `egui_commonmark` (Markdown), `syntect` + `two-face` (highlighting), `image` (decoding). No other UI toolkit.
 
 **Platform.** macOS on Apple Silicon (arm64) only. Intel Macs, Linux and Windows
 are out of scope; release binaries are arm64 only, not universal.
@@ -56,6 +56,10 @@ describes *behaviour*. Binary addresses are given as provenance only.
 
 - **LAY-1** Top to bottom: unified toolbar in the title bar → in-window menu bar
   (`Left File Command Options Right`) → two panels → command line → function-key bar.
+- **LAY-1a** The toolbar contains **only** the *Find files* field and the *Show/Hide Hidden* button
+  (right-aligned). Back/forward, current-folder title, View/Edit/Copy/Move/New Folder/Delete and the
+  List/Compact/Details switches are intentionally absent: they are redundant with the path bar,
+  the function-key bar, the menus and `Alt-T`.
 - **LAY-2** The window MUST also provide a real macOS menu bar:
   `myCommander · Left · File · Command · Options · Right · Help`. Its items
   come from the same table as the in-window menu (`menus.rs`) so both always match.
@@ -73,6 +77,21 @@ describes *behaviour*. Binary addresses are given as provenance only.
 ### 4.1 Panel modes
 - **PNL-1** Each panel shows one of: **File listing**, **Quick view**, **Info**, **Tree**.
   Quick view / Info always show data about the *other* panel's current item.
+- **PNL-1a** Quick view content (`preview.rs`), chosen by file type:
+  | Content | Rendering |
+  |---------|-----------|
+  | Image (png, jpg/jpeg/jfif, gif, webp, bmp, tif/tiff, ico) | shown as an image, scaled to fit, caption `W × H px · size`; decoded images larger than 2048 px are downscaled for display; files > 64 MB are not decoded |
+  | Markdown (`.md`, `.markdown`, `.mdown`) | rendered (headings, lists, links, code, tables) in a scroll area |
+  | Source / HTML / shell / config | syntax highlighted with a language-matched colour scheme; language name shown top right |
+  | Other text | plain monospace |
+  | Binary (NUL byte in first 4 KB) | hex dump |
+  | Directory | list of its entries |
+- **PNL-1b** Language detection order: user override (`ext=Syntax name`) → file extension → well-known names
+  (`.zshrc`, `.bashrc`, `Makefile`, `Dockerfile`, `Cargo.lock` …) → shebang / first line. Unknown types fall back to plain text.
+- **PNL-1c** Quick view reads at most *N* KB (default 512) and 20 000 lines; truncation is indicated.
+  Loaded content is cached per (path, mtime, size, settings) so cursor movement stays cheap.
+- **PNL-1d** Quick view is configurable in **Options ▸ Quick view…** (see CFG-2): images on/off, Markdown rendering
+  on/off, highlighting on/off, line numbers, light and dark highlighting theme, language overrides, read limit.
 - **PNL-2** A panel may also show **panelized** results (Find file results, External panelize).
 - **PNL-3** Each panel keeps: folder, entries, cursor, marks, sort order, filter,
   listing format and directory history (back/forward).
@@ -182,7 +201,7 @@ Items marked `*` are shown **disabled** (they require mc's virtual file systems 
   Command history, Viewed/edited files history, Directory hotlist, Active VFS list*,
   Background jobs, Screen list*, Edit extension file*, Edit menu file,
   Edit highlighting group file*.
-- **Options:** Configuration, Layout, Panel options, Confirmation, Appearance,
+- **Options:** Configuration, Layout, Panel options, Confirmation, Appearance, Quick view (native addition),
   Display bits*, Learn keys*, Virtual FS*, Save setup.
 - **MNU-1** The user menu (F2) reads `menu.txt` from the config directory; entries
   support the substitutions `%f` (current file), `%d` (current dir), `%F` / `%D`
@@ -245,7 +264,9 @@ Taken from mc's `mc.default.keymap` (`[filemanager]`, `[panel]`), plus Mac alias
 - **CFG-2** `settings.json` (serde, every field `#[serde(default)]` so older files
   keep loading): panel folders and sort, listing, hidden flag, hotlist, auto-save,
   font size, command history, file history, layout flags, panel options
-  (mini status, lynx motion, mix all files), confirmation flags, theme.
+  (mini status, lynx motion, mix all files), confirmation flags, theme, and the Quick view options
+  (`qv_images`, `qv_markdown`, `qv_highlight`, `qv_line_numbers`, `qv_max_kb`, `qv_theme_light`,
+  `qv_theme_dark`, `qv_syntax_map`).
 - **CFG-3** `menu.txt` – user menu file (see MNU-1).
 - **CFG-4** Auto-save is on by default; *Save setup* saves explicitly.
 - **CFG-5** New settings fields MUST have a default so existing user files never break.
@@ -260,6 +281,7 @@ Taken from mc's `mc.default.keymap` (`[filemanager]`, `[panel]`), plus Mac alias
 | L-1 | No VFS / archives / FTP / SFTP | Menu items disabled. |
 | L-2 | No encoding, display-bits, learn-keys | Menu items disabled. |
 | L-3 | Delete is permanent | Trash integration is a post-1.0 candidate. |
+| L-5 | Quick view: no SVG/HEIC/PDF rendering; images inside Markdown are not loaded; highlighting uses syntect's built-in themes and syntax set (two-face extras) | Post-1.0 candidates. |
 | L-4 | Tests | Only `ops.rs` has unit tests; panel rules lack automated tests. |
 
 ## 11. Architecture (ARC)
@@ -271,6 +293,7 @@ src/
   ui_main.rs      Toolbar, menu bar, popups, command line, key bar, Info / Quick view
   panel.rs        Panel model: entries, cursor, marks, sort, history  (pure logic)
   panel_view.rs   Finder-style panel drawing
+  preview.rs      Quick view: images, Markdown (egui_commonmark), syntax highlighting (syntect + two-face), cache
   fsutil.rs       Directory reading, size/date/permission formatting, highlight classes
   ops.rs          Background jobs (copy, move, delete, dirsize, find, shell) + Progress
   dialogs.rs      Standard dialogs + progress / overwrite window
@@ -289,7 +312,8 @@ src/
 - **ARC-3** A new menu item is added in `menus.rs` once; both menu bars pick it up.
   Unimplemented items MUST be registered as disabled, not omitted.
 - **ARC-4** Test aids: `myCommander --screenshot out.png` renders one frame headless-ish and exits;
-  env `MYCMD_SHOT_MENU=<0..4>` opens menu *n* for the picture.
+  env `MYCMD_SHOT_MENU=<0..4>` opens menu *n* for the picture; env `MYCMD_SHOT_QV=<file>` shows that file
+  in the right panel's Quick view.
 
 ## 12. Roadmap candidates (post-1.0)
 

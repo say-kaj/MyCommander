@@ -522,6 +522,17 @@ impl App {
                 p.set_mark(2, true);
             }
         }
+        if self.frame == 70 {
+            // Test aid: MYCMD_SHOT_QV=<file> shows that file in the right panel's Quick View.
+            if let Ok(f) = std::env::var("MYCMD_SHOT_QV") {
+                let f = std::path::PathBuf::from(f);
+                if let (Some(dir), Some(name)) = (f.parent(), f.file_name()) {
+                    self.panels[0] = crate::panel::Panel::new(dir.to_path_buf());
+                    self.panels[0].select_name(&name.to_string_lossy());
+                    self.panels[1].view = crate::panel::PanelView::QuickView;
+                }
+            }
+        }
         if self.frame == 80 {
             // Test aid: MYCMD_SHOT_MENU=<0..4> opens that mc menu for the picture.
             if let Some(i) = std::env::var("MYCMD_SHOT_MENU").ok().and_then(|v| v.parse::<usize>().ok()) {

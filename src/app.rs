@@ -34,6 +34,7 @@ pub enum Action {
     PanelOptions,
     Confirmation,
     Appearance,
+    QuickViewOptions,
     UserCommand(usize),
     Help,
     UserMenu,
@@ -133,6 +134,7 @@ pub enum OptPage {
     PanelOptions,
     Confirmation,
     Appearance,
+    QuickView,
 }
 
 pub enum JobKind {
@@ -176,6 +178,7 @@ pub struct App {
     pub pal: crate::theme::Pal,
     pub native_menu: Option<crate::native_menu::NativeMenu>,
     pub search_text: String,
+    pub preview: crate::preview::Preview,
     /// The last Find / External panelize result, for Left/Right > Panelize.
     pub last_panelize: Option<(PathBuf, Vec<PathBuf>)>,
     /// x position of each menu title in the menu bar (for placing the drop-down).
@@ -237,6 +240,7 @@ impl App {
             xmap: false,
             status: None,
             char_w: 8.0,
+            preview: Default::default(),
             quit_asked: false,
             pal,
             native_menu,
@@ -694,6 +698,7 @@ impl App {
             Action::Layout => self.dialog = Some(Dialog::Options { page: OptPage::Layout, s: Box::new(self.settings.clone()) }),
             Action::PanelOptions => self.dialog = Some(Dialog::Options { page: OptPage::PanelOptions, s: Box::new(self.settings.clone()) }),
             Action::Confirmation => self.dialog = Some(Dialog::Options { page: OptPage::Confirmation, s: Box::new(self.settings.clone()) }),
+            Action::QuickViewOptions => self.dialog = Some(Dialog::Options { page: OptPage::QuickView, s: Box::new(self.settings.clone()) }),
             Action::Appearance => self.dialog = Some(Dialog::Options { page: OptPage::Appearance, s: Box::new(self.settings.clone()) }),
             Action::Unavailable => {
                 self.dialog = Some(Dialog::Message {

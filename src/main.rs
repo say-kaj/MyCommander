@@ -10,6 +10,7 @@ mod fsutil;
 mod ops;
 mod panel;
 mod panel_view;
+mod preview;
 mod screens;
 mod settings;
 mod theme;

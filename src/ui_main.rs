@@ -5,7 +5,7 @@
 use crate::app::{Action, App, Dialog, MenuState};
 use crate::menus::{items, TITLES};
 use crate::fsutil::{self, Kind};
-use crate::panel::{Listing, PanelView};
+use crate::panel::PanelView;
 use crate::theme::*;
 use crate::util::*;
 use egui::{Align2, FontId, Key, Pos2, Rect, Sense, Stroke, Vec2};
@@ -112,36 +112,6 @@ impl App {
                 ui.horizontal_centered(|ui| {
                     ui.add_space(84.0); // room for the traffic-light buttons
                     ui.spacing_mut().item_spacing.x = 6.0;
-                    if tool_button(ui, &pal, "‹", false, "Back").clicked() {
-                        let _ = self.panels[self.active].history_back();
-                    }
-                    if tool_button(ui, &pal, "›", false, "Forward").clicked() {
-                        let _ = self.panels[self.active].history_forward();
-                    }
-                    ui.add_space(8.0);
-                    let title = self.panels[self.active].dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "/".into());
-                    let title = truncate_middle(&title, 22);
-                    ui.label(egui::RichText::new(title).font(FontId::proportional(15.0)).strong().color(pal.text));
-                    ui.add_space(14.0);
-                    for (t, a, tip) in [
-                        ("View", Action::View, "View file (F3)"),
-                        ("Edit", Action::Edit, "Edit file (F4)"),
-                        ("Copy", Action::Copy, "Copy to the other panel (F5)"),
-                        ("Move", Action::Move, "Move or rename (F6)"),
-                        ("New Folder", Action::Mkdir, "New folder (F7)"),
-                        ("Delete", Action::Delete, "Delete (F8)"),
-                    ] {
-                        if tool_button(ui, &pal, t, false, tip).clicked() {
-                            action = Some(a);
-                        }
-                    }
-                    ui.add_space(10.0);
-                    let cur = self.panels[self.active].listing;
-                    for (t, l, tip) in [("List", Listing::Full, "Name, date, size, kind"), ("Compact", Listing::Brief, "Names in two columns"), ("Details", Listing::Long, "Permissions, owner and group")] {
-                        if tool_button(ui, &pal, t, cur == l, tip).clicked() {
-                            self.panels[self.active].listing = l;
-                        }
-                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(12.0);
                         let hidden = self.panels[0].show_hidden;
@@ -641,40 +611,10 @@ impl App {
         let other = &self.panels[1 - idx];
         let name = other.current().map(|e| e.name.clone()).unwrap_or_default();
         let inner = self.mode_header(ui, rect, &format!("Quick View — {}", truncate_middle(&name, 40)));
-        let painter = ui.painter_at(inner);
-        let font = self.mono();
-        let row_h = self.settings.font_size + 4.0;
-        let max_rows = (inner.height() / row_h) as usize;
-        let max_chars = (inner.width() / self.char_w) as usize;
-        let mut lines: Vec<String> = Vec::new();
-        if let Some(e) = other.current() {
-            if e.is_dir_like() {
-                if let Ok(list) = fsutil::list_dir(&e.path, other.show_hidden) {
-                    for c in list.iter().filter(|c| !c.is_updir()).take(max_rows) {
-                        lines.push(format!("{}{}", if c.is_dir_like() { "▸ " } else { "  " }, c.name));
-                    }
-                }
-            } else {
-                use std::io::Read;
-                let mut buf = Vec::new();
-                if let Ok(f) = std::fs::File::open(&e.path) {
-                    let _ = f.take(64 * 1024).read_to_end(&mut buf);
-                }
-                if buf.iter().take(4096).any(|&b| b == 0) {
-                    for (i, ch) in buf.chunks(16).take(max_rows).enumerate() {
-                        lines.push(hex_line(i * 16, ch));
-                    }
-                } else {
-                    for l in String::from_utf8_lossy(&buf).lines().take(max_rows) {
-                        lines.push(l.replace('\t', "    "));
-                    }
-                }
-            }
-        }
-        for (i, l) in lines.iter().enumerate() {
-            let s: String = l.chars().take(max_chars).collect();
-            painter.text(Pos2::new(inner.left(), inner.top() + i as f32 * row_h), Align2::LEFT_TOP, s, font.clone(), pal.text);
-        }
+        let mono = self.mono();
+        let entry = self.panels[1 - idx].current().cloned();
+        let show_hidden = self.panels[1 - idx].show_hidden;
+        self.preview.show(ui, inner, entry.as_ref(), show_hidden, &self.settings, pal.dark, pal.text, pal.text_dim, mono);
         if ui.interact(rect, ui.id().with(("qv", idx)), Sense::click()).double_clicked() {
             self.panels[idx].view = PanelView::Listing;
         }

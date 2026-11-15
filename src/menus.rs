@@ -101,6 +101,7 @@ pub fn items(idx: usize) -> Vec<MItem> {
             it("Panel options…", "", Action::PanelOptions),
             it("Confirmation…", "", Action::Confirmation),
             it("Appearance…", "", Action::Appearance),
+            it("Quick view…", "", Action::QuickViewOptions),
             off("Display bits…"),
             off("Learn keys…"),
             off("Virtual FS…"),

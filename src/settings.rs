@@ -48,6 +48,16 @@ pub struct Settings {
     pub confirm_exit: bool,
     // Appearance
     pub theme: ThemeChoice,
+    // Quick view
+    pub qv_images: bool,
+    pub qv_markdown: bool,
+    pub qv_highlight: bool,
+    pub qv_line_numbers: bool,
+    pub qv_max_kb: u32,
+    pub qv_theme_light: String,
+    pub qv_theme_dark: String,
+    /// One `extension=Syntax name` per line, e.g. `conf=INI`.
+    pub qv_syntax_map: String,
 }
 
 impl Default for Settings {
@@ -74,6 +84,14 @@ impl Default for Settings {
             confirm_execute: false,
             confirm_exit: false,
             theme: ThemeChoice::System,
+            qv_images: true,
+            qv_markdown: true,
+            qv_highlight: true,
+            qv_line_numbers: false,
+            qv_max_kb: 512,
+            qv_theme_light: "InspiredGitHub".into(),
+            qv_theme_dark: "base16-ocean.dark".into(),
+            qv_syntax_map: String::new(),
         }
     }
 }

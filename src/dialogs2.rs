@@ -290,6 +290,7 @@ impl App {
                     OptPage::PanelOptions => "Panel options",
                     OptPage::Confirmation => "Confirmation",
                     OptPage::Appearance => "Appearance",
+                    OptPage::QuickView => "Quick view",
                 };
                 let (ok, cancel) = self
                     .dialog_window(ctx, title, false, |ui| {
@@ -450,6 +451,30 @@ fn options_page(ui: &mut egui::Ui, page: OptPage, s: &mut Settings) {
             ui.checkbox(&mut s.confirm_overwrite, "Overwrite");
             ui.checkbox(&mut s.confirm_execute, "Execute");
             ui.checkbox(&mut s.confirm_exit, "Exit");
+        }
+        OptPage::QuickView => {
+            ui.checkbox(&mut s.qv_images, "Show images as images (png, jpg, gif, webp, bmp, tiff, ico)");
+            ui.checkbox(&mut s.qv_markdown, "Render Markdown");
+            ui.checkbox(&mut s.qv_highlight, "Syntax highlighting (source, HTML, shell, config files …)");
+            ui.add_enabled_ui(s.qv_highlight, |ui| {
+                ui.checkbox(&mut s.qv_line_numbers, "Line numbers");
+                for (label, field) in [("Light theme:", &mut s.qv_theme_light), ("Dark theme:", &mut s.qv_theme_dark)] {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        egui::ComboBox::from_id_salt(label).selected_text(field.clone()).show_ui(ui, |ui| {
+                            for t in crate::preview::THEMES {
+                                ui.selectable_value(field, t.to_string(), t);
+                            }
+                        });
+                    });
+                }
+                ui.label("Language overrides, one `extension=Syntax name` per line (e.g. `conf=INI`):");
+                ui.add(egui::TextEdit::multiline(&mut s.qv_syntax_map).desired_rows(3).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Read at most (KB):");
+                ui.add(egui::DragValue::new(&mut s.qv_max_kb).range(16..=8192).speed(16));
+            });
         }
         OptPage::Appearance => {
             ui.label("Appearance:");
