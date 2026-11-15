@@ -6,6 +6,7 @@
 - SFTP and FTP links (SPEC §5a): browse, view, edit, copy, move, mkdir and delete on servers, using `~/.ssh/config` + keys for SFTP and `~/.netrc` for FTP.
 - `myCommander sftp://host/path` start arguments.
 - Left/Right ▸ Encoding…: text encoding (automatic, UTF-8, Windows-1252, ISO-8859-15, Mac Roman, Windows-1250/1251, KOI8-R, UTF-16) for viewer, editor and Quick view; the editor saves in the original encoding.
+- Fix: the Dock showed eframe's default "E" instead of the app icon; the icon is now set explicitly.
 - Removed the unusable menu items *Shell link*, *Active VFS list* and *Virtual FS*.
 
 ## 1.0.1

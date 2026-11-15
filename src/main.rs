@@ -59,6 +59,7 @@ fn main() -> eframe::Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("myCommander")
         .with_app_id("myCommander")
+        .with_icon(app_icon())
         .with_inner_size([1280.0, 800.0])
         .with_min_inner_size([760.0, 440.0])
         // Unified title bar: the toolbar sits next to the traffic-light buttons.
@@ -85,4 +86,17 @@ fn main() -> eframe::Result<()> {
     }
 
     eframe::run_native("myCommander", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, screenshot, dirs)))))
+}
+
+/// The app icon for the Dock and window. Without it eframe shows its own default "E" icon,
+/// even inside an app bundle that has an .icns.
+fn app_icon() -> egui::IconData {
+    const PNG: &[u8] = include_bytes!("../assets/AppIcon-1024.png");
+    match image::load_from_memory(PNG) {
+        Ok(img) => {
+            let img = img.resize(512, 512, image::imageops::FilterType::Lanczos3).to_rgba8();
+            egui::IconData { width: img.width(), height: img.height(), rgba: img.into_raw() }
+        }
+        Err(_) => egui::IconData::default(),
+    }
 }
