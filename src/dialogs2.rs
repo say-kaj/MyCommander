@@ -1,0 +1,468 @@
+//! The dialogs behind mc's remaining menu items: Link / Symlink / Relative
+//! symlink, Edit symlink, Chown and Advanced chown, View file, Filtered view,
+//! Quick cd, External panelize, Command / file history, and the Options pages
+//! (Configuration, Layout, Panel options, Confirmation, Appearance).
+
+use crate::app::{Action, App, Dialog, InputKind, Job, JobKind, LinkKind, OptPage};
+use crate::fsutil;
+use crate::ops;
+use crate::settings::{Settings, ThemeChoice};
+use crate::util::*;
+use egui::{FontId, Key};
+use std::path::PathBuf;
+
+pub type Then = Box<dyn FnOnce(&mut App, &egui::Context)>;
+
+fn field(ui: &mut egui::Ui, text: &mut String, width: f32) -> egui::Response {
+    ui.add(egui::TextEdit::singleline(text).desired_width(width).font(FontId::monospace(14.0)))
+}
+
+fn uid_of(name: &str) -> Option<u32> {
+    if let Ok(n) = name.parse() {
+        return Some(n);
+    }
+    let c = std::ffi::CString::new(name).ok()?;
+    unsafe {
+        let pw = libc::getpwnam(c.as_ptr());
+        if pw.is_null() {
+            None
+        } else {
+            Some((*pw).pw_uid)
+        }
+    }
+}
+
+fn gid_of(name: &str) -> Option<u32> {
+    if let Ok(n) = name.parse() {
+        return Some(n);
+    }
+    let c = std::ffi::CString::new(name).ok()?;
+    unsafe {
+        let gr = libc::getgrnam(c.as_ptr());
+        if gr.is_null() {
+            None
+        } else {
+            Some((*gr).gr_gid)
+        }
+    }
+}
+
+fn chown(path: &std::path::Path, uid: u32, gid: u32) -> Result<(), String> {
+    let c = std::ffi::CString::new(path.as_os_str().to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
+    let r = unsafe { libc::lchown(c.as_ptr(), uid, gid) };
+    if r == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error().to_string())
+    }
+}
+
+impl App {
+    /// Handles the dialogs added for the full mc menu. Returns the dialog to keep
+    /// open (if any) and an action to run after it closes.
+    pub fn draw_more_dialog(&mut self, ctx: &egui::Context, dialog: Dialog, enter: bool, esc: bool) -> (Option<Dialog>, Option<Then>) {
+        let mut keep: Option<Dialog> = None;
+        let mut then: Option<Then> = None;
+        match dialog {
+            Dialog::Link { kind, mut target, mut link } => {
+                let title = match kind {
+                    LinkKind::Hard => "Link",
+                    LinkKind::Symbolic => "Symbolic link",
+                    LinkKind::Relative => "Relative symlink",
+                };
+                let (ok, cancel) = self
+                    .dialog_window(ctx, title, false, |ui| {
+                        ui.label(match kind {
+                            LinkKind::Hard => "Existing file:",
+                            _ => "Existing filename (filename symlink will point to):",
+                        });
+                        field(ui, &mut target, 560.0);
+                        ui.label(if kind == LinkKind::Hard { "Link name:" } else { "Symbolic link filename:" });
+                        field(ui, &mut link, 560.0);
+                        ok_cancel(ui)
+                    })
+                    .unwrap_or((false, false));
+                if ok || enter {
+                    then = Some(Box::new(move |app, _| {
+                        let r = match kind {
+                            LinkKind::Hard => std::fs::hard_link(&target, &link),
+                            _ => std::os::unix::fs::symlink(&target, &link),
+                        };
+                        if let Err(e) = r {
+                            app.err(format!("Cannot create link \"{}\"\n{}", link, e));
+                        }
+                        app.reload_both();
+                    }));
+                } else if !(cancel || esc) {
+                    keep = Some(Dialog::Link { kind, target, link });
+                }
+            }
+            Dialog::EditSymlink { link, mut target } => {
+                let name = link.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let (ok, cancel) = self
+                    .dialog_window(ctx, "Edit symlink", false, |ui| {
+                        ui.label(format!("Symlink '{}' points to:", name));
+                        field(ui, &mut target, 560.0).request_focus();
+                        ok_cancel(ui)
+                    })
+                    .unwrap_or((false, false));
+                if ok || enter {
+                    then = Some(Box::new(move |app, _| {
+                        let tmp = link.with_extension("mycmd-tmp-link");
+                        let r = std::os::unix::fs::symlink(&target, &tmp).and_then(|_| std::fs::rename(&tmp, &link));
+                        if let Err(e) = r {
+                            app.err(format!("edit symlink: {}", e));
+                        }
+                        app.reload_both();
+                    }));
+                } else if !(cancel || esc) {
+                    keep = Some(Dialog::EditSymlink { link, target });
+                }
+            }
+            Dialog::Chown { paths, mut owner, mut group, mut mode } => {
+                let title = if mode.is_some() { "Advanced chown" } else { "Chown command" };
+                let (ok, cancel) = self
+                    .dialog_window(ctx, title, false, |ui| {
+                        let what = if paths.len() == 1 {
+                            paths[0].file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+                        } else {
+                            format!("{} files", paths.len())
+                        };
+                        ui.label(format!("Owner and group for {}", what));
+                        egui::Grid::new("chown").num_columns(2).show(ui, |ui| {
+                            ui.label("Owner:");
+                            field(ui, &mut owner, 240.0);
+                            ui.end_row();
+                            ui.label("Group:");
+                            field(ui, &mut group, 240.0);
+                            ui.end_row();
+                        });
+                        if let Some(m) = mode.as_mut() {
+                            ui.add_space(6.0);
+                            ui.label("Permissions:");
+                            egui::Grid::new("adv_perm").num_columns(4).show(ui, |ui| {
+                                ui.label("");
+                                ui.label("Read");
+                                ui.label("Write");
+                                ui.label("Execute");
+                                ui.end_row();
+                                for (who, shift) in [("Owner", 6u32), ("Group", 3), ("Others", 0)] {
+                                    ui.label(who);
+                                    for bit in [4u32, 2, 1] {
+                                        let b = bit << shift;
+                                        let mut on = *m & b != 0;
+                                        if ui.checkbox(&mut on, "").changed() {
+                                            if on {
+                                                *m |= b;
+                                            } else {
+                                                *m &= !b;
+                                            }
+                                        }
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                            ui.label(egui::RichText::new(format!("Octal: {:04o}", *m)).monospace());
+                        }
+                        ui.label(egui::RichText::new("Changing the owner usually needs administrator rights.").small());
+                        ok_cancel(ui)
+                    })
+                    .unwrap_or((false, false));
+                if ok || enter {
+                    then = Some(Box::new(move |app, _| {
+                        let (Some(uid), Some(gid)) = (uid_of(owner.trim()), gid_of(group.trim())) else {
+                            app.err("Unknown owner or group.");
+                            return;
+                        };
+                        for p in &paths {
+                            if let Err(e) = chown(p, uid, gid) {
+                                app.err(format!("Cannot chown \"{}\"\n{}", p.display(), e));
+                                break;
+                            }
+                            if let Some(m) = mode {
+                                if let Err(e) = fsutil::set_mode(p, m) {
+                                    app.err(format!("Cannot chmod \"{}\"\n{}", p.display(), e));
+                                    break;
+                                }
+                            }
+                        }
+                        app.act().unmark_all();
+                        app.reload_both();
+                    }));
+                } else if !(cancel || esc) {
+                    keep = Some(Dialog::Chown { paths, owner, group, mode });
+                }
+            }
+            Dialog::Input { kind, mut value } => {
+                let (title, label) = match kind {
+                    InputKind::ViewFile => ("View file", "Filename:"),
+                    InputKind::FilteredView => ("Filtered view", "Filter command and arguments (the file name is added):"),
+                    InputKind::QuickCd => ("Quick cd", "cd"),
+                    InputKind::ExternalPanelize => ("External panelize", "Command (its output lines become the panel's files):"),
+                };
+                let (ok, cancel) = self
+                    .dialog_window(ctx, title, false, |ui| {
+                        ui.label(label);
+                        field(ui, &mut value, 520.0).request_focus();
+                        ok_cancel(ui)
+                    })
+                    .unwrap_or((false, false));
+                if (ok || enter) && !value.trim().is_empty() {
+                    let v = value.trim().to_string();
+                    then = Some(Box::new(move |app, ctx| app.finish_input(ctx, kind, v)));
+                } else if !(cancel || esc) {
+                    keep = Some(Dialog::Input { kind, value });
+                }
+            }
+            Dialog::History { files, mut cursor } => {
+                let list: Vec<String> = if files {
+                    self.settings.file_history.iter().map(|p| fsutil::tilde(p)).collect()
+                } else {
+                    self.settings.command_history.clone()
+                };
+                if take(ctx, Key::ArrowDown, NONE) && cursor + 1 < list.len() {
+                    cursor += 1;
+                }
+                if take(ctx, Key::ArrowUp, NONE) {
+                    cursor = cursor.saturating_sub(1);
+                }
+                let mut pick: Option<(usize, bool)> = None; // (index, edit)
+                let mut close = false;
+                let title = if files { "Viewed/edited files history" } else { "Command history" };
+                self.dialog_window(ctx, title, false, |ui| {
+                    ui.set_min_width(560.0);
+                    if list.is_empty() {
+                        ui.label("Nothing here yet.");
+                    }
+                    egui::ScrollArea::vertical().max_height(360.0).stick_to_bottom(true).show(ui, |ui| {
+                        for (i, t) in list.iter().enumerate() {
+                            let r = ui.selectable_label(i == cursor, egui::RichText::new(t).monospace());
+                            if r.clicked() {
+                                cursor = i;
+                            }
+                            if r.double_clicked() {
+                                pick = Some((i, false));
+                            }
+                        }
+                    });
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if files {
+                            if ui.button("View").clicked() {
+                                pick = Some((cursor, false));
+                            }
+                            if ui.button("Edit").clicked() {
+                                pick = Some((cursor, true));
+                            }
+                        } else if ui.button("Use").clicked() {
+                            pick = Some((cursor, false));
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+                if enter && !list.is_empty() {
+                    pick = Some((cursor, false));
+                }
+                if let Some((i, edit)) = pick {
+                    if files {
+                        if let Some(p) = self.settings.file_history.get(i).cloned() {
+                            then = Some(Box::new(move |app, _| {
+                                if edit {
+                                    app.open_editor(&p);
+                                } else {
+                                    app.open_viewer(&p);
+                                }
+                            }));
+                        }
+                    } else if let Some(c) = self.settings.command_history.get(i).cloned() {
+                        self.cmdline = c;
+                    }
+                } else if !(close || esc) {
+                    keep = Some(Dialog::History { files, cursor });
+                }
+            }
+            Dialog::Options { page, mut s } => {
+                let title = match page {
+                    OptPage::Configuration => "Configuration",
+                    OptPage::Layout => "Layout",
+                    OptPage::PanelOptions => "Panel options",
+                    OptPage::Confirmation => "Confirmation",
+                    OptPage::Appearance => "Appearance",
+                };
+                let (ok, cancel) = self
+                    .dialog_window(ctx, title, false, |ui| {
+                        options_page(ui, page, &mut s);
+                        ui.add_space(6.0);
+                        ok_cancel(ui)
+                    })
+                    .unwrap_or((false, false));
+                if ok || enter {
+                    then = Some(Box::new(move |app, ctx| app.apply_settings(ctx, *s)));
+                } else if !(cancel || esc) {
+                    keep = Some(Dialog::Options { page, s });
+                }
+            }
+            Dialog::ConfirmQuit => {
+                let (ok, cancel) = self
+                    .dialog_window(ctx, "The Midnight Commander", false, |ui| {
+                        ui.label("Do you really want to quit myCommander?");
+                        ok_cancel_labeled(ui, "Quit")
+                    })
+                    .unwrap_or((false, false));
+                if ok || enter {
+                    then = Some(Box::new(|app, ctx| {
+                        app.quit_asked = true;
+                        app.do_action(ctx, Action::Quit);
+                    }));
+                } else if !(cancel || esc) {
+                    keep = Some(Dialog::ConfirmQuit);
+                }
+            }
+            Dialog::ConfirmExec { name } => {
+                let (ok, cancel) = self
+                    .dialog_window(ctx, "Open", false, |ui| {
+                        ui.label(format!("Do you really want to execute \"{}\"?", name));
+                        ok_cancel_labeled(ui, "Run")
+                    })
+                    .unwrap_or((false, false));
+                if ok || enter {
+                    then = Some(Box::new(move |app, ctx| app.run_command(ctx, format!("./{}", shell_quote(&name)))));
+                } else if !(cancel || esc) {
+                    keep = Some(Dialog::ConfirmExec { name });
+                }
+            }
+            other => keep = Some(other),
+        }
+        (keep, then)
+    }
+
+    pub fn finish_input(&mut self, ctx: &egui::Context, kind: InputKind, v: String) {
+        let base = self.act().dir.clone();
+        let resolve = |v: &str| -> PathBuf {
+            if v == "~" {
+                fsutil::home_dir()
+            } else if let Some(r) = v.strip_prefix("~/") {
+                fsutil::home_dir().join(r)
+            } else {
+                base.join(v)
+            }
+        };
+        match kind {
+            InputKind::ViewFile => {
+                let p = resolve(&v);
+                self.open_viewer(&p);
+            }
+            InputKind::FilteredView => {
+                if let Some(e) = self.act().current().filter(|e| !e.is_dir_like()).cloned() {
+                    self.run_command(ctx, format!("{} {}", v, shell_quote(&e.name)));
+                } else {
+                    self.err("Put the cursor on a file first.");
+                }
+            }
+            InputKind::QuickCd => {
+                let p = resolve(&v);
+                self.chdir_active(&p);
+            }
+            InputKind::ExternalPanelize => {
+                if self.job.is_none() {
+                    self.job = Some(Job { kind: JobKind::Panelize { panel: self.active }, shared: ops::start_shell(v, base) });
+                }
+            }
+        }
+    }
+
+    /// OK in one of the Options pages.
+    pub fn apply_settings(&mut self, ctx: &egui::Context, s: Settings) {
+        let hidden_changed = s.show_hidden != self.panels[0].show_hidden;
+        let mix_changed = s.mix_all_files != self.settings.mix_all_files;
+        let style_changed = s.font_size != self.settings.font_size || s.theme != self.settings.theme;
+        // Keep things the dialogs don't edit.
+        let keep_hist = std::mem::take(&mut self.settings.command_history);
+        let keep_files = std::mem::take(&mut self.settings.file_history);
+        let keep_hot = std::mem::take(&mut self.settings.hotlist);
+        self.settings = s;
+        self.settings.command_history = keep_hist;
+        self.settings.file_history = keep_files;
+        self.settings.hotlist = keep_hot;
+        if hidden_changed {
+            let v = self.settings.show_hidden;
+            for p in self.panels.iter_mut() {
+                p.show_hidden = v;
+                p.reload();
+            }
+        }
+        if mix_changed {
+            for p in self.panels.iter_mut() {
+                p.sort.mix_all = self.settings.mix_all_files;
+                p.resort();
+            }
+        }
+        if style_changed {
+            // Force the palette to be picked again for the chosen theme.
+            self.pal.dark = !self.pal.dark;
+            self.refresh_theme(ctx);
+            self.restyle(ctx);
+        }
+        let _ = self.settings.save();
+    }
+
+    pub fn open_viewer(&mut self, p: &std::path::Path) {
+        match crate::screens::Viewer::open(p) {
+            Ok(v) => {
+                self.settings.remember_file(p);
+                self.screen = crate::app::Screen::Viewer(Box::new(v));
+            }
+            Err(e) => self.err(e),
+        }
+    }
+}
+
+fn options_page(ui: &mut egui::Ui, page: OptPage, s: &mut Settings) {
+    match page {
+        OptPage::Configuration => {
+            ui.checkbox(&mut s.show_hidden, "Show hidden files");
+            ui.checkbox(&mut s.auto_save, "Auto save setup");
+            ui.checkbox(&mut s.confirm_delete, "Confirm delete");
+            ui.checkbox(&mut s.confirm_overwrite, "Confirm overwrite");
+        }
+        OptPage::Layout => {
+            ui.label("Panel split:");
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut s.horizontal_split, false, "Vertical (side by side)");
+                ui.radio_value(&mut s.horizontal_split, true, "Horizontal (one above the other)");
+            });
+            ui.add_space(4.0);
+            ui.checkbox(&mut s.show_menubar, "Menu bar visible");
+            ui.checkbox(&mut s.show_toolbar, "Toolbar visible");
+            ui.checkbox(&mut s.show_cmdline, "Command prompt");
+            ui.checkbox(&mut s.show_keybar, "Key bar visible");
+        }
+        OptPage::PanelOptions => {
+            ui.checkbox(&mut s.show_mini_status, "Show mini-status");
+            ui.checkbox(&mut s.mix_all_files, "Mix all files (folders not first)");
+            ui.checkbox(&mut s.show_hidden, "Show hidden files");
+            ui.checkbox(&mut s.lynx_motion, "Lynx-like motion (Left = parent, Right = open)");
+        }
+        OptPage::Confirmation => {
+            ui.checkbox(&mut s.confirm_delete, "Delete");
+            ui.checkbox(&mut s.confirm_overwrite, "Overwrite");
+            ui.checkbox(&mut s.confirm_execute, "Execute");
+            ui.checkbox(&mut s.confirm_exit, "Exit");
+        }
+        OptPage::Appearance => {
+            ui.label("Appearance:");
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut s.theme, ThemeChoice::System, "Follow macOS");
+                ui.radio_value(&mut s.theme, ThemeChoice::Light, "Light");
+                ui.radio_value(&mut s.theme, ThemeChoice::Dark, "Dark");
+            });
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label("Text size:");
+                ui.add(egui::Slider::new(&mut s.font_size, 11.0..=20.0).step_by(0.5));
+            });
+        }
+    }
+}

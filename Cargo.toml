@@ -1,0 +1,25 @@
+[package]
+name = "mycommander"
+version = "1.0.0"
+edition = "2021"
+description = "myCommander - a native two-panel file manager for macOS"
+
+[[bin]]
+name = "myCommander"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow"] }
+egui = "0.31"
+winit = "0.30"
+image = { version = "0.25", default-features = false, features = ["png"] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = { version = "0.17", default-features = false }
+
+[profile.release]
+opt-level = 3
