@@ -253,6 +253,28 @@ impl App {
                     keep = Some(Dialog::Remote { panel, scheme, value, hosts });
                 }
             }
+            Dialog::Encoding { mut choice } => {
+                let (ok, cancel) = self
+                    .dialog_window(ctx, "Encoding", false, |ui| {
+                        ui.set_min_width(420.0);
+                        ui.label("Text encoding for the viewer, the editor and quick view:");
+                        ui.add_space(4.0);
+                        for e in crate::textenc::TextEncoding::ALL {
+                            ui.radio_value(&mut choice, e, e.label());
+                        }
+                        ui.add_space(8.0);
+                        ok_cancel(ui)
+                    })
+                    .unwrap_or((false, false));
+                if ok || enter {
+                    then = Some(Box::new(move |app, _| {
+                        app.settings.text_encoding = choice;
+                        let _ = app.settings.save();
+                    }));
+                } else if !(cancel || esc) {
+                    keep = Some(Dialog::Encoding { choice });
+                }
+            }
             Dialog::History { files, mut cursor } => {
                 let list: Vec<String> = if files {
                     self.settings.file_history.iter().map(|p| fsutil::tilde(p)).collect()
@@ -449,7 +471,7 @@ impl App {
     }
 
     pub fn open_viewer(&mut self, p: &std::path::Path) {
-        match crate::screens::Viewer::open(p) {
+        match crate::screens::Viewer::open(p, self.settings.text_encoding) {
             Ok(v) => {
                 self.settings.remember_file(p);
                 self.screen = crate::app::Screen::Viewer(Box::new(v));
@@ -511,6 +533,10 @@ fn options_page(ui: &mut egui::Ui, page: OptPage, s: &mut Settings) {
                 ui.add(egui::TextEdit::multiline(&mut s.qv_syntax_map).desired_rows(3).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace));
             });
             ui.horizontal(|ui| {
+                ui.label("Text encoding:");
+                encoding_combo(ui, "qv_enc", &mut s.text_encoding);
+            });
+            ui.horizontal(|ui| {
                 ui.label("Read at most (KB):");
                 ui.add(egui::DragValue::new(&mut s.qv_max_kb).range(16..=8192).speed(16));
             });
@@ -529,4 +555,12 @@ fn options_page(ui: &mut egui::Ui, page: OptPage, s: &mut Settings) {
             });
         }
     }
+}
+
+fn encoding_combo(ui: &mut egui::Ui, id: &str, value: &mut crate::textenc::TextEncoding) {
+    egui::ComboBox::from_id_salt(id).selected_text(value.label()).width(320.0).show_ui(ui, |ui| {
+        for e in crate::textenc::TextEncoding::ALL {
+            ui.selectable_value(value, e, e.label());
+        }
+    });
 }

@@ -18,7 +18,7 @@ two side-by-side file panels, function-key driven file operations, quick keyboar
 navigation – but is a real GUI app, not a terminal program. Name: **myCommander**.
 
 **Stack.** Rust 2021, `eframe`/`egui` 0.31 (glow backend), `muda` for the native
-macOS menu bar, `egui_commonmark` (Markdown), `syntect` + `two-face` (highlighting), `image` (decoding), `resvg` (SVG); system tools `sftp`, `curl`, `sips`. No other UI toolkit.
+macOS menu bar, `egui_commonmark` (Markdown), `syntect` + `two-face` (highlighting), `image` (decoding), `resvg` (SVG), `encoding_rs` (text encodings); system tools `sftp`, `curl`, `sips`. No other UI toolkit.
 
 **Platform.** macOS on Apple Silicon (arm64) only. Intel Macs, Linux and Windows
 are out of scope; release binaries are arm64 only, not universal.
@@ -217,26 +217,40 @@ Implemented in `vfs.rs`. **Nothing myCommander-specific is configured**: it reus
   defeated by backslash-escaping in `qg()`.
 - **VFS-9** Remote I/O is synchronous subprocess calls: connecting and listing block the UI for the duration (timeout 15 s).
   Copy/Move/Delete and Quick view run in background threads.
-- **VFS-10** Not part of 1.x: Shell link (ssh without sftp), password / keyboard-interactive login, FTPS, resume,
+- **VFS-10** Not part of 1.x (and not in the menus): Shell link (ssh without sftp), Active VFS list, Virtual FS, password / keyboard-interactive login, FTPS, resume,
   byte-level progress for remote transfers (progress is per file).
+
+## 5b. Text encoding (ENC)
+
+- **ENC-1** *Left/Right ▸ Encoding…* (also a combo in Options ▸ Quick view) sets one global text encoding for the viewer (F3),
+  the editor (F4) and Quick view. Setting `text_encoding`, persisted.
+- **ENC-2** Choices: **Automatic** (default), UTF-8, Windows-1252 / ISO-8859-1, ISO-8859-15, Mac Roman, Windows-1250,
+  Windows-1251, KOI8-R, UTF-16 LE, UTF-16 BE (`textenc.rs`, `encoding_rs`).
+- **ENC-3** Automatic: a byte order mark wins (UTF-8, UTF-16 LE/BE); otherwise valid UTF-8 is UTF-8; otherwise Windows-1252.
+  Files containing NUL bytes are shown as hex dumps, **except** UTF-16 text.
+- **ENC-4** The editor saves in the encoding the file was read with (and keeps a BOM if there was one), so opening and saving a
+  Latin-1 file does not silently convert it to UTF-8.
+- **ENC-5** The viewer shows the encoding in its status line; hex mode always shows the raw bytes.
+- **ENC-6** File **names** are always UTF-8 (macOS); there is no file-name encoding setting (mc's per-panel encoding is not replicated).
 
 ## 6. Menu structure (MNU)
 
 Identical in the in-window menu bar, the macOS menu bar and the F9 pull-downs.
-Items marked `*` are shown **disabled** (they require mc's virtual file systems or terminal settings).
+Items marked `*` are shown **disabled** (they need terminal-only mc features).
+mc's VFS-only items (*Shell link*, *Active VFS list*, *Virtual FS*) are **removed**, not disabled; SFTP and FTP links are real (§5a).
 
 - **Left / Right:** File listing, Quick view, Info, Tree, Listing format…, Sort order…,
-  Filter…, Encoding*, FTP link…, Shell link*, SFTP link…, Panelize, Rescan.
+  Filter…, Encoding…, FTP link…, SFTP link…, Panelize, Rescan.
 - **File:** View, View file…, Filtered view, Edit, Copy, Chmod, Link, Symlink,
   Relative symlink, Edit symlink, Chown, Advanced chown, Rename/Move, Mkdir, Delete,
   Quick cd, Select group, Unselect group, Invert selection, Exit.
 - **Command:** User menu, Directory tree, Find file, Swap panels, Switch panels on/off,
   Compare directories, Compare files, External panelize, Show directory sizes,
-  Command history, Viewed/edited files history, Directory hotlist, Active VFS list*,
+  Command history, Viewed/edited files history, Directory hotlist,
   Background jobs, Screen list*, Edit extension file*, Edit menu file,
   Edit highlighting group file*.
 - **Options:** Configuration, Layout, Panel options, Confirmation, Appearance, Quick view (native addition),
-  Display bits*, Learn keys*, Virtual FS*, Save setup.
+  Display bits*, Learn keys*, Save setup.
 - **MNU-1** The user menu (F2) reads `menu.txt` from the config directory; entries
   support the substitutions `%f` (current file), `%d` (current dir), `%F` / `%D`
   (same for the other panel).
@@ -298,7 +312,7 @@ Taken from mc's `mc.default.keymap` (`[filemanager]`, `[panel]`), plus Mac alias
 - **CFG-2** `settings.json` (serde, every field `#[serde(default)]` so older files
   keep loading): panel folders and sort, listing, hidden flag, hotlist, auto-save,
   font size, command history, file history, layout flags, panel options
-  (mini status, lynx motion, mix all files), confirmation flags, theme, and the Quick view options
+  (mini status, lynx motion, mix all files), confirmation flags, theme, `text_encoding`, and the Quick view options
   (`qv_images`, `qv_markdown`, `qv_highlight`, `qv_line_numbers`, `qv_max_kb`, `qv_theme_light`,
   `qv_theme_dark`, `qv_syntax_map`).
 - **CFG-3** `menu.txt` – user menu file (see MNU-1).
@@ -314,7 +328,7 @@ Taken from mc's `mc.default.keymap` (`[filemanager]`, `[panel]`), plus Mac alias
 | U-2 | Runtime behaviour vs. mechanics values | The mechanics sheet is readable and sourced (30 of 32 values with a binary/config source) but no automated comparison against a running mc exists. |
 | U-3 | Estimated (not sourced) values | "Copy preserves attributes" and "right click marks". |
 | L-1 | No archives and no shell link | *Shell link…* is disabled. SFTP/FTP: see §5a. |
-| L-2 | No encoding, display-bits, learn-keys | Menu items disabled. |
+| L-2 | No display-bits, learn-keys | Menu items disabled. |
 | L-3 | Delete is permanent | Trash integration is a post-1.0 candidate. |
 | L-5 | Quick view: PDF shows only the first page; HEIC/PDF depend on macOS `sips`; images inside Markdown are not loaded; highlighting uses syntect's built-in themes and syntax set (two-face extras) | Post-1.0 candidates. |
 | L-4 | Tests | Only `ops.rs` has unit tests; panel rules lack automated tests. |
@@ -329,6 +343,7 @@ src/
   panel.rs        Panel model: entries, cursor, marks, sort, history  (pure logic)
   panel_view.rs   Finder-style panel drawing
   preview.rs      Quick view: images, Markdown (egui_commonmark), syntax highlighting (syntect + two-face), cache
+  textenc.rs      Text encodings (decode / encode / sniff) for viewer, editor, quick view
   vfs.rs          Remote locations: sftp (system sftp) and ftp (system curl), path helpers, ssh host list, download cache
   fsutil.rs       Directory reading, size/date/permission formatting, highlight classes
   ops.rs          Background jobs (copy, move, delete, dirsize, find, shell) + Progress

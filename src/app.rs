@@ -35,6 +35,7 @@ pub enum Action {
     Confirmation,
     Appearance,
     QuickViewOptions,
+    Encoding,
     Remote(usize, crate::vfs::Scheme),
     UserCommand(usize),
     Help,
@@ -91,6 +92,7 @@ pub struct MenuState {
 pub enum Dialog {
     Message { title: String, text: String, error: bool },
     Mkdir { name: String },
+    Encoding { choice: crate::textenc::TextEncoding },
     Remote { panel: usize, scheme: crate::vfs::Scheme, value: String, hosts: Vec<String> },
     CopyMove { kind: OpKind, sources: Vec<Entry>, mask: String, dest: String },
     Delete { sources: Vec<PathBuf>, text: String },
@@ -446,9 +448,12 @@ impl App {
                     self.err("This file is too large for the editor (over 16 MB).");
                     return;
                 }
-                let text = String::from_utf8_lossy(&bytes).to_string();
+                let d = crate::textenc::decode(&bytes, self.settings.text_encoding);
                 self.settings.remember_file(path);
-                self.screen = Screen::Editor(Box::new(crate::screens::Editor::new(path.to_path_buf(), text, false)));
+                let mut ed = crate::screens::Editor::new(path.to_path_buf(), d.text, false);
+                ed.encoding = d.enc;
+                ed.bom = d.bom;
+                self.screen = Screen::Editor(Box::new(ed));
             }
             Err(e) => self.err(format!("Cannot open \"{}\" for editing\n{}", path.display(), e)),
         }
@@ -780,6 +785,7 @@ impl App {
                 let hosts = if scheme == crate::vfs::Scheme::Sftp { crate::vfs::ssh_hosts() } else { Vec::new() };
                 self.dialog = Some(Dialog::Remote { panel: p, scheme, value: String::new(), hosts });
             }
+            Action::Encoding => self.dialog = Some(Dialog::Encoding { choice: self.settings.text_encoding }),
             Action::QuickViewOptions => self.dialog = Some(Dialog::Options { page: OptPage::QuickView, s: Box::new(self.settings.clone()) }),
             Action::Appearance => self.dialog = Some(Dialog::Options { page: OptPage::Appearance, s: Box::new(self.settings.clone()) }),
             Action::Unavailable => {

@@ -11,7 +11,11 @@ use std::path::{Path, PathBuf};
 
 pub struct Viewer {
     pub path: PathBuf,
+    /// What is shown: the raw bytes in hex mode, the text (as UTF-8) otherwise.
     pub data: Vec<u8>,
+    raw: Vec<u8>,
+    text: Vec<u8>,
+    pub encoding: crate::textenc::TextEncoding,
     pub truncated: bool,
     pub hex: bool,
     pub wrap: bool,
@@ -26,21 +30,30 @@ pub struct Viewer {
 }
 
 impl Viewer {
-    pub fn open(path: &Path) -> Result<Viewer, String> {
+    pub fn open(path: &Path, want: crate::textenc::TextEncoding) -> Result<Viewer, String> {
         use std::io::Read;
         const LIMIT: u64 = 32 << 20;
         let f = std::fs::File::open(path).map_err(|e| format!("Cannot open \"{}\"\n{}", path.display(), e))?;
         let len = f.metadata().map(|m| m.len()).unwrap_or(0);
         let mut data = Vec::new();
         f.take(LIMIT).read_to_end(&mut data).map_err(|e| e.to_string())?;
-        let binary = data.iter().take(8000).any(|&b| b == 0);
+        let binary = crate::textenc::looks_binary(&data, want);
+        let (text, encoding) = if binary {
+            (Vec::new(), crate::textenc::TextEncoding::Utf8)
+        } else {
+            let d = crate::textenc::decode(&data, want);
+            (d.text.into_bytes(), d.enc)
+        };
         let mut v = Viewer {
             path: path.to_path_buf(),
             truncated: len > LIMIT,
             hex: binary,
+            data: if binary { data.clone() } else { text.clone() },
+            raw: data,
+            text,
+            encoding,
             wrap: false,
             lines: Vec::new(),
-            data,
             search: String::new(),
             asking_search: false,
             asking_goto: false,
@@ -51,6 +64,14 @@ impl Viewer {
         };
         v.split_lines();
         Ok(v)
+    }
+
+    /// Switch between the hex dump (raw bytes) and the text view (decoded text).
+    pub fn set_hex(&mut self, hex: bool) {
+        self.hex = hex;
+        self.data = if hex { self.raw.clone() } else { self.text.clone() };
+        self.match_at = None;
+        self.split_lines();
     }
 
     fn split_lines(&mut self) {
@@ -116,6 +137,9 @@ pub struct Editor {
     pub select_range: Option<(usize, usize)>,
     /// Set when this is a downloaded copy of a remote file: Save uploads it back.
     pub remote: Option<PathBuf>,
+    /// Encoding the file was read with; Save writes it back the same way.
+    pub encoding: crate::textenc::TextEncoding,
+    pub bom: bool,
 }
 
 impl Editor {
@@ -133,6 +157,8 @@ impl Editor {
             line_col: (1, 1),
             select_range: None,
             remote: None,
+            encoding: crate::textenc::TextEncoding::Utf8,
+            bom: false,
         }
     }
 
@@ -141,7 +167,7 @@ impl Editor {
     }
 
     fn save(&mut self) -> bool {
-        match std::fs::write(&self.path, self.text.as_bytes()) {
+        match std::fs::write(&self.path, crate::textenc::encode(&self.text, self.encoding, self.bom)) {
             Ok(()) => {
                 if let Some(r) = &self.remote {
                     if let Err(e) = crate::vfs::upload(&self.path, r) {
@@ -235,7 +261,7 @@ impl App {
                 v.wrap = !v.wrap;
             }
             if take(ctx, Key::F4, NONE) {
-                v.hex = !v.hex;
+                v.set_hex(!v.hex);
                 v.scroll_to_row = v.match_at.map(|m| v.row_of(m));
             }
             if take(ctx, Key::F7, NONE) || take_text(ctx, "/") || take(ctx, Key::F, CMD) {
@@ -264,7 +290,7 @@ impl App {
         match draw_bar(ctx, "viewer_bar", fs, &pal, &labels) {
             Some(2) => v.wrap = !v.wrap,
             Some(3) | Some(10) => close = true,
-            Some(4) => v.hex = !v.hex,
+            Some(4) => v.set_hex(!v.hex),
             Some(5) => v.asking_goto = true,
             Some(7) => v.asking_search = true,
             _ => {}
@@ -275,11 +301,11 @@ impl App {
             if v.truncated { " (first 32 MB)" } else { "" },
             v.lines.len(),
             if v.hex {
-                "hex"
+                "hex".to_string()
             } else if v.wrap {
-                "wrap"
+                format!("wrap  ·  {}", v.encoding.short())
             } else {
-                "no wrap"
+                format!("no wrap  ·  {}", v.encoding.short())
             }
         );
         status_bar(ctx, &pal, "viewer_status", fs, v.path.display().to_string(), info);

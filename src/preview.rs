@@ -76,9 +76,9 @@ fn ext_of(path: &Path) -> String {
 
 fn signature(s: &Settings, dark: bool, show_hidden: bool) -> String {
     format!(
-        "{}{}{}{}|{}|{}|{}|{}|{}",
+        "{}{}{}{}|{}|{}|{}|{}|{}|{:?}",
         s.qv_images as u8, s.qv_markdown as u8, s.qv_highlight as u8, s.qv_line_numbers as u8,
-        s.qv_max_kb, s.qv_theme_light, s.qv_theme_dark, s.qv_syntax_map, dark as u8 + 2 * show_hidden as u8
+        s.qv_max_kb, s.qv_theme_light, s.qv_theme_dark, s.qv_syntax_map, dark as u8 + 2 * show_hidden as u8, s.text_encoding
     )
 }
 
@@ -230,10 +230,10 @@ impl Preview {
             Err(err) => return Content::Message(format!("Cannot read: {err}")),
         }
         let truncated = e.size > limit;
-        if buf.iter().take(4096).any(|&b| b == 0) {
+        if crate::textenc::looks_binary(&buf, s.text_encoding) {
             return Content::Hex(buf.chunks(16).take(2000).enumerate().map(|(i, c)| crate::util::hex_line(i * 16, c)).collect());
         }
-        let text = String::from_utf8_lossy(&buf).to_string();
+        let text = crate::textenc::decode(&buf, s.text_encoding).text;
         if s.qv_markdown && matches!(ext.as_str(), "md" | "markdown" | "mdown") {
             return Content::Markdown(text);
         }

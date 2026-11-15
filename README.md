@@ -9,7 +9,7 @@ A native macOS two-panel file manager that works like [Midnight Commander](https
 - Two panels, F-key driven copy / move / mkdir / delete, mc's keyboard shortcuts
 - Listing formats Full / Brief / Long / User, mc sort modes, marking with size summary
 - Quick view shows images (incl. SVG, HEIC, first PDF page) as images, renders Markdown and syntax-highlights source, HTML, shell and config files (themes and language overrides configurable); Info and Tree panel modes; Find file and External panelize
-- Internal viewer (text/hex) and editor, user menu, directory hotlist, history
+- Internal viewer (text/hex) and editor with selectable text encoding (Left/Right ▸ Encoding…), user menu, directory hotlist, history
 - Real macOS menu bar with mc's exact menu structure, light/dark mode, Finder-style list
 - Slim toolbar (Find files, Show/Hide Hidden) – everything else is in the menus, keys and function-key bar
 - SFTP and FTP in the panels (Left/Right ▸ SFTP link… / FTP link…) using your existing `~/.ssh/config` and keys (SFTP) or `~/.netrc` (FTP) – nothing to set up in myCommander

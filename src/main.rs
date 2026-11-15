@@ -13,6 +13,7 @@ mod panel_view;
 mod preview;
 mod screens;
 mod settings;
+mod textenc;
 mod theme;
 mod ui_main;
 mod util;

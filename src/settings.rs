@@ -48,6 +48,8 @@ pub struct Settings {
     pub confirm_exit: bool,
     // Appearance
     pub theme: ThemeChoice,
+    /// Text encoding for Viewer, Editor and Quick view.
+    pub text_encoding: crate::textenc::TextEncoding,
     // Quick view
     pub qv_images: bool,
     pub qv_markdown: bool,
@@ -84,6 +86,7 @@ impl Default for Settings {
             confirm_execute: false,
             confirm_exit: false,
             theme: ThemeChoice::System,
+            text_encoding: Default::default(),
             qv_images: true,
             qv_markdown: true,
             qv_highlight: true,
