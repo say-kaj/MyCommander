@@ -43,6 +43,7 @@ pub fn items(idx: usize) -> Vec<MItem> {
                 sep(),
                 it("FTP link…", "", Action::Remote(p, crate::vfs::Scheme::Ftp)),
                 it("SFTP link…", "", Action::Remote(p, crate::vfs::Scheme::Sftp)),
+                it("Local folder", "", Action::LocalFolder(p)),
                 it("Panelize", "", Action::Panelize(p)),
                 sep(),
                 it("Rescan", "⌃R", Action::Rescan(p)),

@@ -67,6 +67,11 @@ impl Entry {
 
 pub fn updir_entry(dir: &Path) -> Entry {
     let parent = crate::vfs::parent(dir).unwrap_or_else(|| dir.to_path_buf());
+    if crate::vfs::is_remote(dir) && crate::vfs::parent(dir).is_none() {
+        let mut e = crate::vfs::root_entry(&home_dir());
+        e.kind = Kind::UpDir;
+        return e;
+    }
     if crate::vfs::is_remote(dir) {
         let mut e = crate::vfs::root_entry(&parent);
         e.kind = Kind::UpDir;
@@ -132,7 +137,8 @@ pub fn read_entry(path: &Path) -> Option<Entry> {
 
 pub fn list_dir(dir: &Path, show_hidden: bool) -> std::io::Result<Vec<Entry>> {
     let mut out = Vec::new();
-    if crate::vfs::parent(dir).is_some() {
+    // A server root also gets "..": it leads back to the local file system.
+    if crate::vfs::parent(dir).is_some() || crate::vfs::is_remote(dir) {
         out.push(updir_entry(dir));
     }
     if crate::vfs::is_remote(dir) {

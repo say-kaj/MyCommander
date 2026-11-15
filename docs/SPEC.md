@@ -210,6 +210,9 @@ Implemented in `vfs.rs`. **Nothing myCommander-specific is configured**: it reus
 - **VFS-4** Connect via **Left/Right ▸ SFTP link… / FTP link…**: a dialog takes `host[/path]` (or a full URL) and, for SFTP,
   lists the host aliases from `~/.ssh/config` (including simple `Include`s) to click. The command line `cd sftp://…`
   and start arguments (`myCommander sftp://host/path`) work too. Leaving is just navigating elsewhere.
+- **VFS-4a** Back to the local file system, three ways: **`..` at the root of a server** (the panel always offers it there),
+  the **💻 Local** crumb at the start of the path bar, and **Left/Right ▸ Local folder**. All lead to the last local folder
+  the panel showed (`Panel::last_local`; the home folder if there was none). `cd /path`, `cd ~`, Quick cd and the hotlist work as well.
 - **VFS-5** Supported on remote panels: browse, sort, mark, Quick view (downloaded in the background, ≤ 8 MB),
   View (F3) and Enter (download ≤ 256 MB to `~/Library/Caches/myCommander/remote/`, then view / open with the default app),
   Edit (F4: edits the downloaded copy; **Save uploads it back**), Copy (F5), Move (F6), Mkdir (F7), Delete (F8),
@@ -245,7 +248,7 @@ Items marked `*` are shown **disabled** (they need terminal-only mc features).
 mc's VFS-only items (*Shell link*, *Active VFS list*, *Virtual FS*) are **removed**, not disabled; SFTP and FTP links are real (§5a).
 
 - **Left / Right:** File listing, Quick view, Info, Tree, Listing format…, Sort order…,
-  Filter…, Encoding…, FTP link…, SFTP link…, Panelize, Rescan.
+  Filter…, Encoding…, FTP link…, SFTP link…, Local folder, Panelize, Rescan.
 - **File:** View, View file…, Filtered view, Edit, Copy, Chmod, Link, Symlink,
   Relative symlink, Edit symlink, Chown, Advanced chown, Rename/Move, Mkdir, Delete,
   Quick cd, Select group, Unselect group, Invert selection, Exit.

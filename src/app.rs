@@ -37,6 +37,7 @@ pub enum Action {
     QuickViewOptions,
     Encoding,
     Remote(usize, crate::vfs::Scheme),
+    LocalFolder(usize),
     UserCommand(usize),
     Help,
     UserMenu,
@@ -781,6 +782,13 @@ impl App {
             Action::Layout => self.dialog = Some(Dialog::Options { page: OptPage::Layout, s: Box::new(self.settings.clone()) }),
             Action::PanelOptions => self.dialog = Some(Dialog::Options { page: OptPage::PanelOptions, s: Box::new(self.settings.clone()) }),
             Action::Confirmation => self.dialog = Some(Dialog::Options { page: OptPage::Confirmation, s: Box::new(self.settings.clone()) }),
+            Action::LocalFolder(p) => {
+                let back = self.panels[p].last_local.clone();
+                let back = if back.is_dir() { back } else { fsutil::home_dir() };
+                if let Err(e) = self.panels[p].chdir(&back, true) {
+                    self.err(e);
+                }
+            }
             Action::Remote(p, scheme) => {
                 let hosts = if scheme == crate::vfs::Scheme::Sftp { crate::vfs::ssh_hosts() } else { Vec::new() };
                 self.dialog = Some(Dialog::Remote { panel: p, scheme, value: String::new(), hosts });

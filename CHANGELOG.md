@@ -1,6 +1,7 @@
 # Changelog
 
 ## 1.1.1
+- Way back from a server: `..` at a server root, a "Local" crumb in the path bar and Left/Right ▸ Local folder lead back to the local file system.
 - Fix: SFTP was very slow because every operation opened a new ssh connection. One multiplexed connection per host is now reused; listings are cached for 5 s and Quick view of remote files is debounced.
 
 ## 1.1.0

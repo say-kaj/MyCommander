@@ -9,7 +9,7 @@ use crate::ops;
 use crate::settings::{Settings, ThemeChoice};
 use crate::util::*;
 use egui::{FontId, Key};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub type Then = Box<dyn FnOnce(&mut App, &egui::Context)>;
 
@@ -407,6 +407,14 @@ impl App {
                 fsutil::home_dir()
             } else if let Some(r) = v.strip_prefix("~/") {
                 fsutil::home_dir().join(r)
+            } else if v.starts_with("sftp://") || v.starts_with("ftp://") {
+                crate::vfs::normalize(Path::new(v))
+            } else if crate::vfs::is_remote(&base) && !v.starts_with('/') {
+                if v == ".." {
+                    crate::vfs::parent(&base).unwrap_or_else(|| base.clone())
+                } else {
+                    crate::vfs::join(&base, v.trim_end_matches('/'))
+                }
             } else {
                 base.join(v)
             }

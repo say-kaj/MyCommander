@@ -35,7 +35,7 @@ impl App {
             while let Some(c) = cur {
                 let up = crate::vfs::parent(&c);
                 let name = if up.is_none() {
-                    format!("⇄ {}", crate::vfs::parse(&c).map(|l| l.host).unwrap_or_default())
+                    format!("🌐 {}", crate::vfs::parse(&c).map(|l| l.host).unwrap_or_default())
                 } else {
                     crate::vfs::base_name(&c)
                 };
@@ -55,6 +55,10 @@ impl App {
             if anc == home {
                 break;
             }
+        }
+        if crate::vfs::is_remote(&dir) {
+            // First crumb: the way back to the local file system.
+            crumbs.push(("💻 Local".to_string(), self.panels[idx].last_local.clone()));
         }
         crumbs.reverse();
         // Fit from the right: drop leading crumbs that don't fit.

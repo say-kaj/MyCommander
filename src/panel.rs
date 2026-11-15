@@ -114,6 +114,8 @@ pub struct Panel {
     /// Tree view: folders the person opened.
     pub tree_open: std::collections::HashSet<PathBuf>,
     pub tree_scroll: usize,
+    /// The last local folder shown here: where "back to local" (".." at a server root) leads.
+    pub last_local: PathBuf,
 }
 
 impl Panel {
@@ -128,7 +130,7 @@ impl Panel {
             view: PanelView::Listing,
             show_hidden: false,
             filter: None,
-            history: vec![dir],
+            history: vec![dir.clone()],
             history_pos: 0,
             error: None,
             quick_search: None,
@@ -136,6 +138,7 @@ impl Panel {
             panelized: None,
             tree_open: std::collections::HashSet::new(),
             tree_scroll: 0,
+            last_local: if crate::vfs::is_remote(&dir) { fsutil::home_dir() } else { dir.clone() },
         };
         p.reload_keep(None);
         p
@@ -299,6 +302,9 @@ impl Panel {
             dir
         };
         let old = self.dir.clone();
+        if !crate::vfs::is_remote(&dir) {
+            self.last_local = dir.clone();
+        }
         self.dir = dir.clone();
         self.filter = None;
         self.panelized = None;
@@ -353,6 +359,10 @@ impl Panel {
         }
         if let Some(p) = crate::vfs::parent(&self.dir) {
             self.chdir(&p, true)
+        } else if crate::vfs::is_remote(&self.dir) {
+            // ".." at the root of a server leads back to the local folder we came from.
+            let back = if self.last_local.is_dir() { self.last_local.clone() } else { fsutil::home_dir() };
+            self.chdir(&back, true)
         } else {
             Ok(())
         }
@@ -466,5 +476,29 @@ impl Panel {
         if let Some(i) = self.entries.iter().position(|e| e.name == name) {
             self.cursor = i;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ".." at the root of a server leads back to the local folder the panel came from.
+    #[test]
+    fn back_to_local_from_server_root() {
+        let server = "/usr/libexec/sftp-server";
+        if !Path::new(server).exists() {
+            return;
+        }
+        std::env::set_var("MYCMD_SFTP_SERVER", server);
+        let local = std::env::temp_dir();
+        let mut p = Panel::new(local.clone());
+        let root = crate::vfs::build(crate::vfs::Scheme::Sftp, "local", "/");
+        p.chdir(&root, true).unwrap();
+        assert!(crate::vfs::is_remote(&p.dir));
+        assert!(p.entries.first().map(|e| e.is_updir()).unwrap_or(false), "server root must offer ..");
+        p.go_parent().unwrap();
+        assert!(!crate::vfs::is_remote(&p.dir));
+        assert_eq!(std::fs::canonicalize(&p.dir).unwrap(), std::fs::canonicalize(&local).unwrap());
     }
 }
