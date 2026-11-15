@@ -114,6 +114,8 @@ pub struct Editor {
     pub cursor_char: usize,
     pub line_col: (usize, usize),
     pub select_range: Option<(usize, usize)>,
+    /// Set when this is a downloaded copy of a remote file: Save uploads it back.
+    pub remote: Option<PathBuf>,
 }
 
 impl Editor {
@@ -130,6 +132,7 @@ impl Editor {
             cursor_char: 0,
             line_col: (1, 1),
             select_range: None,
+            remote: None,
         }
     }
 
@@ -140,9 +143,15 @@ impl Editor {
     fn save(&mut self) -> bool {
         match std::fs::write(&self.path, self.text.as_bytes()) {
             Ok(()) => {
+                if let Some(r) = &self.remote {
+                    if let Err(e) = crate::vfs::upload(&self.path, r) {
+                        self.message = Some(format!("Saved locally, upload failed: {e}"));
+                        return false;
+                    }
+                }
                 self.original = self.text.clone();
                 self.is_new = false;
-                self.message = Some("Saved".into());
+                self.message = Some(if self.remote.is_some() { "Saved and uploaded".into() } else { "Saved".into() });
                 true
             }
             Err(e) => {

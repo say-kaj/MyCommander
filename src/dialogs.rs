@@ -88,8 +88,32 @@ impl App {
                     let n = name.trim().to_string();
                     then = Some(Box::new(move |app, _| {
                         let dir = app.act().dir.clone();
-                        let path = if n.starts_with('/') { PathBuf::from(&n) } else { dir.join(&n) };
-                        match std::fs::create_dir_all(&path) {
+                        let path = if crate::vfs::is_remote(&dir) {
+                            crate::vfs::join(&dir, &n)
+                        } else if n.starts_with('/') {
+                            PathBuf::from(&n)
+                        } else {
+                            dir.join(&n)
+                        };
+                        let made = if crate::vfs::is_remote(&path) {
+                            // one level at a time, like create_dir_all
+                            let base = crate::vfs::join(&dir, "");
+                            let mut cur = crate::vfs::normalize(&base);
+                            let mut r = Ok(());
+                            for part in n.split('/').filter(|s| !s.is_empty()) {
+                                cur = crate::vfs::join(&cur, part);
+                                if !crate::vfs::exists(&cur) {
+                                    r = crate::vfs::mkdir(&cur);
+                                    if r.is_err() {
+                                        break;
+                                    }
+                                }
+                            }
+                            r
+                        } else {
+                            std::fs::create_dir_all(&path)
+                        };
+                        match made {
                             Ok(()) => {
                                 let first = Path::new(&n).components().next().map(|c| c.as_os_str().to_string_lossy().to_string()).unwrap_or(n.clone());
                                 app.act().reload_keep(Some(first));
@@ -130,7 +154,15 @@ impl App {
                 if (ok || enter) && !dest.trim().is_empty() {
                     let base = self.act().dir.clone();
                     let d = dest.trim();
-                    let d = if let Some(rest) = d.strip_prefix("~/") { fsutil::home_dir().join(rest) } else { base.join(d) };
+                    let d = if d.starts_with("sftp://") || d.starts_with("ftp://") {
+                        crate::vfs::normalize(Path::new(d))
+                    } else if let Some(rest) = d.strip_prefix("~/") {
+                        fsutil::home_dir().join(rest)
+                    } else if crate::vfs::is_remote(&base) && !d.starts_with('/') {
+                        crate::vfs::join(&base, d.trim_end_matches('/'))
+                    } else {
+                        base.join(d)
+                    };
                     let m = mask.trim().to_string();
                     let srcs: Vec<PathBuf> =
                         sources.iter().filter(|e| m.is_empty() || m == "*" || fsutil::wildcard_match(&m, &e.name, false)).map(|e| e.path.clone()).collect();

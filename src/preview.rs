@@ -48,7 +48,15 @@ struct Key {
     sig: String,
 }
 
+struct Pending {
+    entry: crate::fsutil::Entry,
+    slot: std::sync::Arc<std::sync::Mutex<Option<Result<PathBuf, String>>>>,
+}
+
+const MAX_REMOTE_BYTES: u64 = 8 * 1024 * 1024;
+
 pub struct Preview {
+    pending: Option<Pending>,
     key: Option<Key>,
     content: Content,
     md_cache: CommonMarkCache,
@@ -58,7 +66,7 @@ pub struct Preview {
 
 impl Default for Preview {
     fn default() -> Self {
-        Preview { key: None, content: Content::Message(String::new()), md_cache: CommonMarkCache::default(), syntaxes: None, themes: None }
+        Preview { pending: None, key: None, content: Content::Message(String::new()), md_cache: CommonMarkCache::default(), syntaxes: None, themes: None }
     }
 }
 
@@ -120,9 +128,46 @@ impl Preview {
             Some(e) => {
                 let key = Key { path: e.path.clone(), mtime: e.mtime, size: e.size, sig: signature(s, dark, show_hidden) };
                 if self.key.as_ref() != Some(&key) {
-                    self.content = self.load(ui.ctx(), e, s, dark, show_hidden);
+                    self.pending = None;
+                    if crate::vfs::is_remote(&e.path) {
+                        self.content = if e.is_dir_like() {
+                            Content::Message(format!("{} – remote folder", e.name))
+                        } else if e.size > MAX_REMOTE_BYTES {
+                            Content::Message(format!("Remote file too large for quick view ({} MB) – press F3 to download it", e.size / 1024 / 1024))
+                        } else {
+                            let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+                            let (s2, p2, sz) = (slot.clone(), e.path.clone(), e.size);
+                            std::thread::spawn(move || {
+                                let r = crate::vfs::fetch(&p2, sz, MAX_REMOTE_BYTES).map_err(|e| e.to_string());
+                                *s2.lock().unwrap() = Some(r);
+                            });
+                            self.pending = Some(Pending { entry: e.clone(), slot });
+                            Content::Message("Loading …".into())
+                        };
+                    } else {
+                        self.content = self.load(ui.ctx(), e, s, dark, show_hidden);
+                    }
                     self.md_cache = CommonMarkCache::default();
                     self.key = Some(key);
+                }
+                if let Some(p) = &self.pending {
+                    let done = p.slot.lock().unwrap().take();
+                    match done {
+                        Some(res) => {
+                            let entry = p.entry.clone();
+                            self.pending = None;
+                            self.content = match res {
+                                Ok(local) => {
+                                    let mut le = entry;
+                                    le.path = local;
+                                    self.load(ui.ctx(), &le, s, dark, show_hidden)
+                                }
+                                Err(msg) => Content::Message(msg),
+                            };
+                            self.md_cache = CommonMarkCache::default();
+                        }
+                        None => ui.ctx().request_repaint_after(std::time::Duration::from_millis(100)),
+                    }
                 }
             }
         }

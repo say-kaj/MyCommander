@@ -29,7 +29,21 @@ impl App {
         let mut crumbs: Vec<(String, PathBuf)> = Vec::new();
         let dir = self.panels[idx].dir.clone();
         let home = fsutil::home_dir();
-        for anc in dir.ancestors() {
+        if crate::vfs::is_remote(&dir) {
+            // sftp://host/a/b  →  [host] [a] [b]
+            let mut cur = Some(dir.clone());
+            while let Some(c) = cur {
+                let up = crate::vfs::parent(&c);
+                let name = if up.is_none() {
+                    format!("⇄ {}", crate::vfs::parse(&c).map(|l| l.host).unwrap_or_default())
+                } else {
+                    crate::vfs::base_name(&c)
+                };
+                crumbs.push((name, c));
+                cur = up;
+            }
+        }
+        for anc in dir.ancestors().filter(|_| !crate::vfs::is_remote(&dir)) {
             let name = if anc == home {
                 "🏠 ".to_string() + &anc.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
             } else if anc.parent().is_none() {

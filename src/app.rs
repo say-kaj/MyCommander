@@ -35,6 +35,7 @@ pub enum Action {
     Confirmation,
     Appearance,
     QuickViewOptions,
+    Remote(usize, crate::vfs::Scheme),
     UserCommand(usize),
     Help,
     UserMenu,
@@ -90,6 +91,7 @@ pub struct MenuState {
 pub enum Dialog {
     Message { title: String, text: String, error: bool },
     Mkdir { name: String },
+    Remote { panel: usize, scheme: crate::vfs::Scheme, value: String, hosts: Vec<String> },
     CopyMove { kind: OpKind, sources: Vec<Entry>, mask: String, dest: String },
     Delete { sources: Vec<PathBuf>, text: String },
     SelectGroup { select: bool, pattern: String, files_only: bool, case: bool },
@@ -326,6 +328,19 @@ impl App {
             }
             return;
         }
+        if crate::vfs::is_remote(&e.path) {
+            // A symlink on a server may point at a folder: try to enter it first.
+            if e.is_dir_like() || (e.kind == Kind::Symlink && crate::vfs::list(&e.path).is_ok()) {
+                let p = e.path.clone();
+                self.chdir_active(&p);
+            } else if let Some(local) = self.local_copy(ctx, &e) {
+                match std::process::Command::new("/usr/bin/open").arg(&local).spawn() {
+                    Ok(_) => self.flash(ctx, format!("Opening {}", e.name)),
+                    Err(err) => self.err(format!("Cannot open \"{}\"\n{}", e.name, err)),
+                }
+            }
+            return;
+        }
         if e.is_dir_like() && !e.name.ends_with(".app") {
             let p = e.path.clone();
             self.chdir_active(&p);
@@ -361,7 +376,15 @@ impl App {
         // `cd` is handled by the panel itself.
         if cmd == "cd" || cmd.starts_with("cd ") {
             let arg = cmd[2..].trim();
-            let target = if arg.is_empty() || arg == "~" {
+            let target = if arg.starts_with("sftp://") || arg.starts_with("ftp://") {
+                crate::vfs::normalize(Path::new(unquote(arg).as_str()))
+            } else if crate::vfs::is_remote(&self.act().dir) && !arg.starts_with('/') && arg != "~" && !arg.starts_with("~/") {
+                if arg == ".." {
+                    crate::vfs::parent(&self.act().dir).unwrap_or_else(|| self.act().dir.clone())
+                } else {
+                    crate::vfs::join(&self.act().dir, &unquote(arg))
+                }
+            } else if arg.is_empty() || arg == "~" {
                 fsutil::home_dir()
             } else if let Some(rest) = arg.strip_prefix("~/") {
                 fsutil::home_dir().join(rest)
@@ -372,6 +395,10 @@ impl App {
             self.cmdline.clear();
             return;
         }
+        if crate::vfs::is_remote(&self.act().dir) {
+            self.err("The command line is not available in SFTP/FTP folders (use cd to leave).");
+            return;
+        }
         if self.job.is_some() {
             self.flash(ctx, "Please wait for the running job to finish");
             return;
@@ -380,6 +407,36 @@ impl App {
         self.job = Some(Job { kind: JobKind::Shell, shared: ops::start_shell(cmd.clone(), dir.clone()) });
         self.last_output = format!("{}$ {}\n", fsutil::tilde(&dir), cmd);
         self.cmdline.clear();
+    }
+
+    /// A local file for `e`: itself, or a downloaded copy of a remote file (up to 256 MB).
+    pub fn local_copy(&mut self, ctx: &egui::Context, e: &Entry) -> Option<PathBuf> {
+        if !crate::vfs::is_remote(&e.path) {
+            return Some(e.path.clone());
+        }
+        self.flash(ctx, format!("Downloading {} …", e.name));
+        match crate::vfs::fetch(&e.path, e.size, 256 << 20) {
+            Ok(p) => Some(p),
+            Err(err) => {
+                self.err(format!("Cannot download \"{}\"\n{}", e.name, err));
+                None
+            }
+        }
+    }
+
+    /// Open an SFTP/FTP location in a panel. Blocks while the connection is made.
+    pub fn connect_remote(&mut self, ctx: &egui::Context, panel: usize, scheme: crate::vfs::Scheme, input: String) {
+        self.flash(ctx, format!("Connecting to {} …", input));
+        match crate::vfs::from_input(scheme, &input) {
+            Ok(p) => match self.panels[panel].chdir(&p, true) {
+                Ok(()) => {
+                    self.panels[panel].view = PanelView::Listing;
+                    self.active = panel;
+                }
+                Err(e) => self.err(e),
+            },
+            Err(e) => self.err(format!("Cannot connect to \"{}\"\n{}", input, e)),
+        }
     }
 
     pub fn open_editor(&mut self, path: &Path) {
@@ -433,6 +490,17 @@ impl App {
 
     pub fn do_action(&mut self, ctx: &egui::Context, a: Action) {
         self.menu = None;
+        let remote_here = crate::vfs::is_remote(&self.act().dir);
+        let local_only = matches!(
+            a,
+            Action::Chmod | Action::Chown | Action::AdvChown | Action::Link | Action::Symlink | Action::RelSymlink | Action::EditSymlink
+                | Action::DirSize | Action::AllDirSizes | Action::CompareDirs | Action::CompareFiles | Action::Find | Action::ExternalPanelize
+                | Action::FilteredView | Action::EditNew | Action::DirTree | Action::Tree(_) | Action::Panelize(_)
+        );
+        if remote_here && local_only {
+            self.err("This command works on local folders only (not on SFTP/FTP locations).");
+            return;
+        }
         match a {
             Action::Help => self.dialog = Some(Dialog::Help),
             Action::UserMenu => self.menu = Some(MenuState { top: 0, sel: 0, user: true }),
@@ -443,14 +511,23 @@ impl App {
                     let _ = self.act().go_parent();
                 } else if e.is_dir_like() {
                     self.chdir_active(&e.path);
-                } else {
-                    self.open_viewer(&e.path);
+                } else if let Some(local) = self.local_copy(ctx, &e) {
+                    self.open_viewer(&local);
                 }
             }
             Action::Edit => {
                 if let Some(e) = self.act().current().cloned() {
                     if !e.is_dir_like() {
-                        self.open_editor(&e.path);
+                        if crate::vfs::is_remote(&e.path) {
+                            if let Some(local) = self.local_copy(ctx, &e) {
+                                self.open_editor(&local);
+                                if let Screen::Editor(ed) = &mut self.screen {
+                                    ed.remote = Some(e.path.clone());
+                                }
+                            }
+                        } else {
+                            self.open_editor(&e.path);
+                        }
                     }
                 }
             }
@@ -506,6 +583,7 @@ impl App {
                 self.dialog = Some(Dialog::ConfirmQuit);
             }
             Action::Quit => {
+                crate::vfs::clear_cache();
                 if self.screenshot.is_none() && self.settings.auto_save {
                     let _ = self.save_setup();
                 }
@@ -698,6 +776,10 @@ impl App {
             Action::Layout => self.dialog = Some(Dialog::Options { page: OptPage::Layout, s: Box::new(self.settings.clone()) }),
             Action::PanelOptions => self.dialog = Some(Dialog::Options { page: OptPage::PanelOptions, s: Box::new(self.settings.clone()) }),
             Action::Confirmation => self.dialog = Some(Dialog::Options { page: OptPage::Confirmation, s: Box::new(self.settings.clone()) }),
+            Action::Remote(p, scheme) => {
+                let hosts = if scheme == crate::vfs::Scheme::Sftp { crate::vfs::ssh_hosts() } else { Vec::new() };
+                self.dialog = Some(Dialog::Remote { panel: p, scheme, value: String::new(), hosts });
+            }
             Action::QuickViewOptions => self.dialog = Some(Dialog::Options { page: OptPage::QuickView, s: Box::new(self.settings.clone()) }),
             Action::Appearance => self.dialog = Some(Dialog::Options { page: OptPage::Appearance, s: Box::new(self.settings.clone()) }),
             Action::Unavailable => {

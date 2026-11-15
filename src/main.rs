@@ -16,6 +16,7 @@ mod settings;
 mod theme;
 mod ui_main;
 mod util;
+mod vfs;
 
 use std::path::PathBuf;
 
@@ -35,7 +36,7 @@ fn main() -> eframe::Result<()> {
                 screenshot = Some(p);
             }
             "-h" | "--help" => {
-                println!("myCommander [left-folder] [right-folder] [--screenshot file.png]");
+                println!("myCommander [left] [right] [--screenshot file.png]   (folders, or sftp://host/path, ftp://host/path)");
                 return Ok(());
             }
             "-V" | "--version" => {
@@ -44,7 +45,9 @@ fn main() -> eframe::Result<()> {
             }
             other => {
                 let p = PathBuf::from(other);
-                if p.is_dir() {
+                if vfs::is_remote(&p) {
+                    dirs.push(vfs::normalize(&p));
+                } else if p.is_dir() {
                     dirs.push(std::fs::canonicalize(&p).unwrap_or(p));
                 }
             }

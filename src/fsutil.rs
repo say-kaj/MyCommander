@@ -66,7 +66,12 @@ impl Entry {
 }
 
 pub fn updir_entry(dir: &Path) -> Entry {
-    let parent = dir.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| dir.to_path_buf());
+    let parent = crate::vfs::parent(dir).unwrap_or_else(|| dir.to_path_buf());
+    if crate::vfs::is_remote(dir) {
+        let mut e = crate::vfs::root_entry(&parent);
+        e.kind = Kind::UpDir;
+        return e;
+    }
     let md = fs::metadata(&parent).ok();
     let mut e = entry_from_meta("..".into(), parent, md.as_ref(), Kind::UpDir);
     e.kind = Kind::UpDir;
@@ -95,6 +100,9 @@ fn entry_from_meta(name: String, path: PathBuf, md: Option<&fs::Metadata>, kind:
 }
 
 pub fn read_entry(path: &Path) -> Option<Entry> {
+    if crate::vfs::is_remote(path) {
+        return crate::vfs::entry_of(path);
+    }
     let name = path.file_name()?.to_string_lossy().to_string();
     let lmd = fs::symlink_metadata(path).ok()?;
     let ft = lmd.file_type();
@@ -124,8 +132,12 @@ pub fn read_entry(path: &Path) -> Option<Entry> {
 
 pub fn list_dir(dir: &Path, show_hidden: bool) -> std::io::Result<Vec<Entry>> {
     let mut out = Vec::new();
-    if dir.parent().is_some() {
+    if crate::vfs::parent(dir).is_some() {
         out.push(updir_entry(dir));
+    }
+    if crate::vfs::is_remote(dir) {
+        out.extend(crate::vfs::list(dir)?.into_iter().filter(|e| show_hidden || !e.name.starts_with('.')));
+        return Ok(out);
     }
     for de in fs::read_dir(dir)? {
         let Ok(de) = de else { continue };
@@ -285,6 +297,9 @@ pub fn group_name(gid: u32) -> String {
 
 /// (free bytes, total bytes) of the volume holding `path`.
 pub fn free_space(path: &Path) -> Option<(u64, u64)> {
+    if crate::vfs::is_remote(path) {
+        return None;
+    }
     let c = CString::new(path.as_os_str().to_string_lossy().as_bytes()).ok()?;
     unsafe {
         let mut st: libc::statvfs = std::mem::zeroed();

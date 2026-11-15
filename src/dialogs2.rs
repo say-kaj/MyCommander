@@ -214,6 +214,45 @@ impl App {
                     keep = Some(Dialog::Input { kind, value });
                 }
             }
+            Dialog::Remote { panel, scheme, mut value, hosts } => {
+                let sftp = scheme == crate::vfs::Scheme::Sftp;
+                let title = if sftp { "SFTP link" } else { "FTP link" };
+                let mut picked: Option<String> = None;
+                let dim = self.pal.text_dim;
+                let (ok, cancel) = self
+                    .dialog_window(ctx, title, false, |ui| {
+                        ui.set_min_width(520.0);
+                        ui.label(if sftp {
+                            "Host – an alias from ~/.ssh/config or user@host – optionally followed by /path:"
+                        } else {
+                            "[user@]host[/path] – the password is read from ~/.netrc:"
+                        });
+                        field(ui, &mut value, 520.0).request_focus();
+                        if !hosts.is_empty() {
+                            ui.add_space(6.0);
+                            ui.label(egui::RichText::new("Hosts from ~/.ssh/config (click to pick):").color(dim));
+                            egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
+                                for h in &hosts {
+                                    if ui.selectable_label(false, egui::RichText::new(h).monospace()).clicked() {
+                                        picked = Some(h.clone());
+                                    }
+                                }
+                            });
+                        }
+                        ui.add_space(8.0);
+                        ok_cancel(ui)
+                    })
+                    .unwrap_or((false, false));
+                if let Some(h) = picked {
+                    value = h;
+                }
+                if (ok || enter) && !value.trim().is_empty() {
+                    let v = value.trim().to_string();
+                    then = Some(Box::new(move |app, ctx| app.connect_remote(ctx, panel, scheme, v)));
+                } else if !(cancel || esc) {
+                    keep = Some(Dialog::Remote { panel, scheme, value, hosts });
+                }
+            }
             Dialog::History { files, mut cursor } => {
                 let list: Vec<String> = if files {
                     self.settings.file_history.iter().map(|p| fsutil::tilde(p)).collect()

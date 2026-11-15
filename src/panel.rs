@@ -281,13 +281,22 @@ impl Panel {
 
     /// Change folder. `record` adds it to the directory history.
     pub fn chdir(&mut self, dir: &Path, record: bool) -> Result<(), String> {
-        let dir = std::fs::canonicalize(dir).map_err(|e| format!("Cannot change directory to \"{}\"\n{}", dir.display(), e))?;
-        if !dir.is_dir() {
-            return Err(format!("\"{}\" is not a directory", dir.display()));
-        }
-        if let Err(e) = std::fs::read_dir(&dir) {
-            return Err(format!("Cannot change directory to \"{}\"\n{}", dir.display(), e));
-        }
+        let dir = if crate::vfs::is_remote(dir) {
+            // Remote: the listing itself proves the folder exists and is readable.
+            if let Err(e) = crate::vfs::list(dir) {
+                return Err(format!("Cannot change directory to \"{}\"\n{}", crate::vfs::display(dir), e));
+            }
+            dir.to_path_buf()
+        } else {
+            let dir = std::fs::canonicalize(dir).map_err(|e| format!("Cannot change directory to \"{}\"\n{}", dir.display(), e))?;
+            if !dir.is_dir() {
+                return Err(format!("\"{}\" is not a directory", dir.display()));
+            }
+            if let Err(e) = std::fs::read_dir(&dir) {
+                return Err(format!("Cannot change directory to \"{}\"\n{}", dir.display(), e));
+            }
+            dir
+        };
         let old = self.dir.clone();
         self.dir = dir.clone();
         self.filter = None;
@@ -295,8 +304,8 @@ impl Panel {
         self.entries.clear();
         self.top = 0;
         // Coming up from a child folder puts the cursor on that child (mc behaviour).
-        let select = if old.parent() == Some(dir.as_path()) {
-            old.file_name().map(|n| n.to_string_lossy().to_string())
+        let select = if crate::vfs::parent(&old).as_deref() == Some(dir.as_path()) {
+            Some(crate::vfs::base_name(&old))
         } else {
             None
         };
@@ -341,7 +350,7 @@ impl Panel {
             self.reload_keep(None);
             return Ok(());
         }
-        if let Some(p) = self.dir.parent().map(|p| p.to_path_buf()) {
+        if let Some(p) = crate::vfs::parent(&self.dir) {
             self.chdir(&p, true)
         } else {
             Ok(())

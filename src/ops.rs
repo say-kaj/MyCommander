@@ -378,6 +378,269 @@ impl Worker {
     }
 }
 
+// ---------------------------------------------------------------- remote (sftp / ftp) operations
+
+fn any_remote(sources: &[PathBuf], dest: &Option<PathBuf>) -> bool {
+    sources.iter().chain(dest.iter()).any(|p| crate::vfs::is_remote(p))
+}
+
+fn io_entry(p: &Path) -> Option<fsutil::Entry> {
+    if crate::vfs::is_remote(p) {
+        crate::vfs::entry_of(p)
+    } else {
+        fsutil::read_entry(p)
+    }
+}
+
+fn io_children(p: &Path) -> std::io::Result<Vec<fsutil::Entry>> {
+    if crate::vfs::is_remote(p) {
+        crate::vfs::list(p)
+    } else {
+        Ok(fsutil::list_dir(p, true)?.into_iter().filter(|e| !e.is_updir()).collect())
+    }
+}
+
+fn count_any(e: &fsutil::Entry) -> (u64, u64) {
+    if e.kind == fsutil::Kind::Dir {
+        let (mut f, mut b) = (0, 0);
+        if let Ok(kids) = io_children(&e.path) {
+            for k in kids {
+                let (cf, cb) = count_any(&k);
+                f += cf;
+                b += cb;
+            }
+        }
+        (f, b)
+    } else {
+        (1, e.size)
+    }
+}
+
+impl Worker {
+    fn r_may_overwrite(&mut self, src: &fsutil::Entry, dst: &Path) -> Result<bool, ()> {
+        let Some(existing) = io_entry(dst) else { return Ok(true) };
+        match self.overwrite {
+            Overwrite::AllYes => return Ok(true),
+            Overwrite::AllNo => return Ok(false),
+            Overwrite::Ask => {}
+        }
+        let info = |e: &fsutil::Entry| format!("{} bytes, {}", fsutil::size_sep(e.size), fsutil::full_date(e.mtime));
+        let a = self.ask(Question {
+            text: format!("Target file already exists!\n{}", crate::vfs::display(dst)),
+            src_info: format!("New     : {}", info(src)),
+            dst_info: format!("Existing: {}", info(&existing)),
+        });
+        match a {
+            Answer::Yes => Ok(true),
+            Answer::No | Answer::Skip => Ok(false),
+            Answer::All => {
+                self.overwrite = Overwrite::AllYes;
+                Ok(true)
+            }
+            Answer::None => {
+                self.overwrite = Overwrite::AllNo;
+                Ok(false)
+            }
+            Answer::Abort => Err(()),
+        }
+    }
+
+    fn r_copy_file(&mut self, src: &fsutil::Entry, dst: &Path) -> Result<(), ()> {
+        use crate::vfs;
+        if self.cancelled() {
+            return Err(());
+        }
+        if !self.r_may_overwrite(src, dst)? {
+            let mut g = self.p.lock().unwrap();
+            g.bytes_done += src.size;
+            g.files_done += 1;
+            return Ok(());
+        }
+        self.set_current(&src.path, src.size);
+        let res = match (vfs::is_remote(&src.path), vfs::is_remote(dst)) {
+            (true, false) => vfs::download(&src.path, dst),
+            (false, true) => vfs::upload(&src.path, dst),
+            (true, true) => {
+                let tmp = std::env::temp_dir().join(format!("myCommander-xfer-{}", std::process::id()));
+                vfs::download(&src.path, &tmp).and_then(|_| {
+                    let r = vfs::upload(&tmp, dst);
+                    let _ = fs::remove_file(&tmp);
+                    r
+                })
+            }
+            (false, false) => fs::copy(&src.path, dst).map(|_| ()),
+        };
+        match res {
+            Ok(()) => {
+                let mut g = self.p.lock().unwrap();
+                g.bytes_done += src.size;
+                g.files_done += 1;
+            }
+            Err(e) => self.error(format!("Cannot copy \"{}\" to \"{}\"\n{}", vfs::display(&src.path), vfs::display(dst), e)),
+        }
+        Ok(())
+    }
+
+    fn r_make_dir(&mut self, dst: &Path) -> bool {
+        if crate::vfs::is_dir(dst) {
+            return true;
+        }
+        let r = if crate::vfs::is_remote(dst) { crate::vfs::mkdir(dst) } else { fs::create_dir(dst) };
+        match r {
+            Ok(()) => true,
+            Err(e) => {
+                self.error(format!("Cannot create directory \"{}\"\n{}", crate::vfs::display(dst), e));
+                false
+            }
+        }
+    }
+
+    fn r_copy_tree(&mut self, src: &fsutil::Entry, dst: &Path) -> Result<(), ()> {
+        if self.cancelled() {
+            return Err(());
+        }
+        if src.kind == fsutil::Kind::Dir {
+            if dst.starts_with(&src.path) {
+                self.error(format!("Cannot copy/move directory \"{}\" into itself", crate::vfs::display(&src.path)));
+                return Ok(());
+            }
+            if !self.r_make_dir(dst) {
+                return Ok(());
+            }
+            self.set_current(&src.path, 0);
+            let kids = match io_children(&src.path) {
+                Ok(k) => k,
+                Err(e) => {
+                    self.error(format!("Cannot read directory \"{}\"\n{}", crate::vfs::display(&src.path), e));
+                    return Ok(());
+                }
+            };
+            for k in kids {
+                let t = crate::vfs::join(dst, &k.name);
+                self.r_copy_tree(&k, &t)?;
+            }
+            Ok(())
+        } else {
+            self.r_copy_file(src, dst)
+        }
+    }
+
+    fn r_delete_tree(&mut self, e: &fsutil::Entry) -> Result<(), ()> {
+        use crate::vfs;
+        if self.cancelled() {
+            return Err(());
+        }
+        let remote = vfs::is_remote(&e.path);
+        if e.kind == fsutil::Kind::Dir {
+            match io_children(&e.path) {
+                Ok(kids) => {
+                    for k in kids {
+                        self.r_delete_tree(&k)?;
+                    }
+                }
+                Err(err) => self.error(format!("Cannot read directory \"{}\"\n{}", vfs::display(&e.path), err)),
+            }
+            self.set_current(&e.path, 0);
+            let r = if remote { vfs::remove(&e.path, true) } else { fs::remove_dir(&e.path) };
+            if let Err(err) = r {
+                self.error(format!("Cannot remove directory \"{}\"\n{}", vfs::display(&e.path), err));
+            }
+        } else {
+            self.set_current(&e.path, e.size);
+            let r = if remote { vfs::remove(&e.path, false) } else { fs::remove_file(&e.path) };
+            if let Err(err) = r {
+                self.error(format!("Cannot remove file \"{}\"\n{}", vfs::display(&e.path), err));
+            }
+            let mut g = self.p.lock().unwrap();
+            g.files_done += 1;
+            g.bytes_done += e.size;
+        }
+        Ok(())
+    }
+
+    fn r_move_one(&mut self, src: &fsutil::Entry, dst: &Path) -> Result<(), ()> {
+        use crate::vfs;
+        if src.path == dst {
+            self.error(format!("\"{}\"\nand\n\"{}\"\nare the same file", vfs::display(&src.path), vfs::display(dst)));
+            return Ok(());
+        }
+        // Same remote host and a free target name: a server-side rename is enough.
+        if vfs::same_host(&src.path, dst) && !vfs::exists(dst) {
+            self.set_current(&src.path, 0);
+            match vfs::rename(&src.path, dst) {
+                Ok(()) => {
+                    let (f, b) = count_any(src);
+                    let mut g = self.p.lock().unwrap();
+                    g.files_done += f;
+                    g.bytes_done += b;
+                }
+                Err(e) => self.error(format!("Cannot move \"{}\"\n{}", vfs::display(&src.path), e)),
+            }
+            return Ok(());
+        }
+        let before = self.p.lock().unwrap().errors.len();
+        let saved = self.overwrite;
+        self.r_copy_tree(src, dst)?;
+        self.overwrite = saved;
+        if self.p.lock().unwrap().errors.len() == before {
+            let (done, bytes) = {
+                let g = self.p.lock().unwrap();
+                (g.files_done, g.bytes_done)
+            };
+            self.r_delete_tree(src)?;
+            let mut g = self.p.lock().unwrap();
+            g.files_done = done;
+            g.bytes_done = bytes;
+        }
+        Ok(())
+    }
+}
+
+fn start_remote_op(kind: OpKind, sources: Vec<PathBuf>, dest: Option<PathBuf>, ask_overwrite: bool) -> Shared {
+    let p = new_shared(kind.label());
+    let shared = p.clone();
+    thread::spawn(move || {
+        let mut w = Worker { p: shared.clone(), overwrite: if ask_overwrite { Overwrite::Ask } else { Overwrite::AllYes } };
+        let entries: Vec<fsutil::Entry> = sources.iter().filter_map(|s| io_entry(s)).collect();
+        if entries.len() != sources.len() {
+            w.error("Cannot read one of the source files".into());
+        }
+        let (mut files, mut bytes) = (0, 0);
+        for e in &entries {
+            let (f, b) = count_any(e);
+            files += f;
+            bytes += b;
+        }
+        {
+            let mut g = shared.lock().unwrap();
+            g.files_total = files;
+            g.bytes_total = bytes;
+        }
+        let many = entries.len() > 1;
+        for e in &entries {
+            let target = dest.as_ref().map(|d| if many || crate::vfs::is_dir(d) { crate::vfs::join(d, &e.name) } else { d.clone() });
+            let r = match (kind, target) {
+                (OpKind::Copy, Some(t)) => {
+                    if t == e.path {
+                        w.error(format!("\"{}\"\nand\n\"{}\"\nare the same file", crate::vfs::display(&e.path), crate::vfs::display(&t)));
+                        Ok(())
+                    } else {
+                        w.r_copy_tree(e, &t)
+                    }
+                }
+                (OpKind::Move, Some(t)) => w.r_move_one(e, &t),
+                (OpKind::Delete, _) => w.r_delete_tree(e),
+                _ => Ok(()),
+            };
+            if r.is_err() {
+                break;
+            }
+        }
+        shared.lock().unwrap().finished = true;
+    });
+    p
+}
+
 /// (files, bytes) below a path, not following symlinks.
 pub fn count_tree(path: &Path) -> (u64, u64) {
     let Ok(md) = fs::symlink_metadata(path) else { return (0, 0) };
@@ -414,6 +677,9 @@ pub fn start_file_op(kind: OpKind, sources: Vec<PathBuf>, dest: Option<PathBuf>)
 
 /// `ask_overwrite` false = Options > Confirmation "overwrite" off: replace without asking.
 pub fn start_file_op_with(kind: OpKind, sources: Vec<PathBuf>, dest: Option<PathBuf>, ask_overwrite: bool) -> Shared {
+    if any_remote(&sources, &dest) {
+        return start_remote_op(kind, sources, dest, ask_overwrite);
+    }
     let p = new_shared(kind.label());
     let shared = p.clone();
     thread::spawn(move || {
@@ -644,5 +910,53 @@ mod tests {
         assert!(!fsutil::wildcard_match("*.TXT", "a.txt", true));
         assert!(fsutil::wildcard_match("f?le[0-9]*", "file7.rs", true));
         assert_eq!(fsutil::version_cmp("file2", "file10"), std::cmp::Ordering::Less);
+    }
+
+    /// Copy / move / delete between local folders and an "sftp://" location (real sftp client
+    /// talking to a local sftp-server, so no network or ssh keys are needed).
+    #[test]
+    fn remote_copy_move_delete() {
+        let server = "/usr/libexec/sftp-server";
+        if !Path::new(server).exists() {
+            return;
+        }
+        std::env::set_var("MYCMD_SFTP_SERVER", server);
+        let base = std::env::temp_dir().join(format!("mycmd-rtest-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let (local, srv) = (base.join("local"), base.join("srv"));
+        fs::create_dir_all(local.join("tree/sub")).unwrap();
+        fs::create_dir_all(&srv).unwrap();
+        fs::write(local.join("tree/one.txt"), "hello").unwrap();
+        fs::write(local.join("tree/sub/two [x].txt"), "world!").unwrap();
+        let remote = crate::vfs::build(crate::vfs::Scheme::Sftp, "local", &srv.to_string_lossy());
+
+        // upload a folder tree
+        let p = start_file_op(OpKind::Copy, vec![local.join("tree")], Some(remote.clone()));
+        wait(&p);
+        assert!(p.lock().unwrap().errors.is_empty(), "{:?}", p.lock().unwrap().errors);
+        assert_eq!(fs::read_to_string(srv.join("tree/sub/two [x].txt")).unwrap(), "world!");
+
+        // server-side move (rename) within the same host
+        let rtree = crate::vfs::join(&remote, "tree");
+        let moved = crate::vfs::join(&remote, "moved");
+        let p = start_file_op(OpKind::Move, vec![rtree], Some(moved.clone()));
+        wait(&p);
+        assert!(p.lock().unwrap().errors.is_empty(), "{:?}", p.lock().unwrap().errors);
+        assert!(srv.join("moved/one.txt").exists() && !srv.join("tree").exists());
+
+        // download it again
+        let back = base.join("back");
+        fs::create_dir_all(&back).unwrap();
+        let p = start_file_op(OpKind::Copy, vec![moved.clone()], Some(back.clone()));
+        wait(&p);
+        assert!(p.lock().unwrap().errors.is_empty(), "{:?}", p.lock().unwrap().errors);
+        assert_eq!(fs::read_to_string(back.join("moved/one.txt")).unwrap(), "hello");
+
+        // delete on the server
+        let p = start_file_op(OpKind::Delete, vec![moved], None);
+        wait(&p);
+        assert!(p.lock().unwrap().errors.is_empty(), "{:?}", p.lock().unwrap().errors);
+        assert!(!srv.join("moved").exists());
+        let _ = fs::remove_dir_all(&base);
     }
 }

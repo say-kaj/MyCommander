@@ -12,6 +12,7 @@ A native macOS two-panel file manager that works like [Midnight Commander](https
 - Internal viewer (text/hex) and editor, user menu, directory hotlist, history
 - Real macOS menu bar with mc's exact menu structure, light/dark mode, Finder-style list
 - Slim toolbar (Find files, Show/Hide Hidden) – everything else is in the menus, keys and function-key bar
+- SFTP and FTP in the panels (Left/Right ▸ SFTP link… / FTP link…) using your existing `~/.ssh/config` and keys (SFTP) or `~/.netrc` (FTP) – nothing to set up in myCommander
 - Background jobs – the UI never blocks
 
 See [`docs/SPEC.md`](docs/SPEC.md) for the full specification and known limitations.
@@ -39,6 +40,10 @@ Requires macOS on Apple Silicon (M-series, arm64) and a recent stable Rust toolc
 ```sh
 cargo run --release -- [left-dir] [right-dir]
 ```
+
+Connect to a server: Left/Right menu ▸ **SFTP link…** and pick a host from your `~/.ssh/config` (keys only, no password prompts –
+`ssh <host>` must work in Terminal), or ▸ **FTP link…** (password from `~/.netrc`). You can also start with
+`myCommander sftp://host/path`.
 
 Settings are stored in `~/Library/Application Support/myCommander/`.
 

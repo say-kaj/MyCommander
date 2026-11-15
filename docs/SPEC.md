@@ -18,13 +18,13 @@ two side-by-side file panels, function-key driven file operations, quick keyboar
 navigation – but is a real GUI app, not a terminal program. Name: **myCommander**.
 
 **Stack.** Rust 2021, `eframe`/`egui` 0.31 (glow backend), `muda` for the native
-macOS menu bar, `egui_commonmark` (Markdown), `syntect` + `two-face` (highlighting), `image` (decoding), `resvg` (SVG). No other UI toolkit.
+macOS menu bar, `egui_commonmark` (Markdown), `syntect` + `two-face` (highlighting), `image` (decoding), `resvg` (SVG); system tools `sftp`, `curl`, `sips`. No other UI toolkit.
 
 **Platform.** macOS on Apple Silicon (arm64) only. Intel Macs, Linux and Windows
 are out of scope; release binaries are arm64 only, not universal.
 
 **Non-goals for 1.0**
-- No virtual file systems (archives, FTP, SFTP, shell links).
+- No archive browsing and no shell link (see §5a for SFTP and FTP, which *are* supported).
 - No embedded subshell / terminal emulator.
 - No mc-compatible config files, skins or `mc.ext.ini` rules.
 - No pixel-exact imitation of mc's terminal look (see §10, U-1).
@@ -188,13 +188,45 @@ All run as background jobs (`ops.rs`) and show a progress window.
   `Alt-A` / `Alt-P` the path, `Alt-N` the other panel's path.
 - **OPS-13** Background jobs window lists running jobs.
 
+## 5a. Remote locations: SFTP and FTP (VFS)
+
+Implemented in `vfs.rs`. **Nothing myCommander-specific is configured**: it reuses what is already on the Mac.
+
+- **VFS-1** A remote location is a `PathBuf` holding a URL: `sftp://<host>/<abs path>` or `ftp://[user@]<host>[:port]/<path>`.
+  Panels, history, hotlist and the path bar work unchanged; code that touches the disk goes through `vfs.rs` when `is_remote(path)`.
+- **VFS-2** **SFTP** runs the system `/usr/bin/sftp` in batch mode. `<host>` is anything `ssh` understands:
+  an alias from `~/.ssh/config` (user, port, IdentityFile, ProxyJump, …), `user@host` or `host:port`. Authentication is
+  **keys only** (ssh agent, keychain, `IdentityFile`); `BatchMode=yes`, so a password prompt never appears.
+  Unknown host keys are **not** auto-accepted: the error tells the person to run `ssh <host>` once in Terminal.
+  Connections are shared via `ControlMaster`/`ControlPersist=120` (control sockets in `/tmp/myCommander-ssh-<uid>/`, mode 0700).
+- **VFS-3** **FTP** runs the system `/usr/bin/curl` with `--netrc-optional`; credentials come from `~/.netrc`
+  (otherwise anonymous). Paths are relative to the login folder. Only Unix-style `LIST` output is understood.
+  FTP is unencrypted; the UI does not hide that.
+- **VFS-4** Connect via **Left/Right ▸ SFTP link… / FTP link…**: a dialog takes `host[/path]` (or a full URL) and, for SFTP,
+  lists the host aliases from `~/.ssh/config` (including simple `Include`s) to click. The command line `cd sftp://…`
+  and start arguments (`myCommander sftp://host/path`) work too. Leaving is just navigating elsewhere.
+- **VFS-5** Supported on remote panels: browse, sort, mark, Quick view (downloaded in the background, ≤ 8 MB),
+  View (F3) and Enter (download ≤ 256 MB to `~/Library/Caches/myCommander/remote/`, then view / open with the default app),
+  Edit (F4: edits the downloaded copy; **Save uploads it back**), Copy (F5), Move (F6), Mkdir (F7), Delete (F8),
+  between local ↔ remote and remote ↔ remote (via a temporary local copy). Moving within one host is a server-side rename.
+  The download cache is cleared on quit.
+- **VFS-6** Not supported on remote panels (shown as an error, never silently ignored): chmod/chown, links, directory sizes,
+  Find file, Compare, External panelize, Tree, filtered view, the command line (shell commands), new untitled file.
+- **VFS-7** Remote symlinks are shown as aliases; Enter tries them as a folder first. Owner/group show numeric ids for SFTP.
+- **VFS-8** File names with spaces and glob characters (`* ? [ ]`) MUST round-trip (covered by tests); sftp's globbing is
+  defeated by backslash-escaping in `qg()`.
+- **VFS-9** Remote I/O is synchronous subprocess calls: connecting and listing block the UI for the duration (timeout 15 s).
+  Copy/Move/Delete and Quick view run in background threads.
+- **VFS-10** Not part of 1.x: Shell link (ssh without sftp), password / keyboard-interactive login, FTPS, resume,
+  byte-level progress for remote transfers (progress is per file).
+
 ## 6. Menu structure (MNU)
 
 Identical in the in-window menu bar, the macOS menu bar and the F9 pull-downs.
 Items marked `*` are shown **disabled** (they require mc's virtual file systems or terminal settings).
 
 - **Left / Right:** File listing, Quick view, Info, Tree, Listing format…, Sort order…,
-  Filter…, Encoding*, FTP link*, Shell link*, SFTP link*, Panelize, Rescan.
+  Filter…, Encoding*, FTP link…, Shell link*, SFTP link…, Panelize, Rescan.
 - **File:** View, View file…, Filtered view, Edit, Copy, Chmod, Link, Symlink,
   Relative symlink, Edit symlink, Chown, Advanced chown, Rename/Move, Mkdir, Delete,
   Quick cd, Select group, Unselect group, Invert selection, Exit.
@@ -271,6 +303,7 @@ Taken from mc's `mc.default.keymap` (`[filemanager]`, `[panel]`), plus Mac alias
   `qv_theme_dark`, `qv_syntax_map`).
 - **CFG-3** `menu.txt` – user menu file (see MNU-1).
 - **CFG-4** Auto-save is on by default; *Save setup* saves explicitly.
+- **CFG-6** Remote locations may be saved in the hotlist and history; panels never reconnect automatically on start (a remote folder from the last session falls back to the home folder).
 - **CFG-5** New settings fields MUST have a default so existing user files never break.
 
 ## 10. Known unknowns and limitations
@@ -280,7 +313,7 @@ Taken from mc's `mc.default.keymap` (`[filemanager]`, `[panel]`), plus Mac alias
 | U-1 | Exact pixel/column layout of mc's running terminal UI | Unverified. The person declined running mc in a recorded terminal; layout follows format strings in the binary (size width 7, date 12 chars). Low severity – the app deliberately uses a Mac look. |
 | U-2 | Runtime behaviour vs. mechanics values | The mechanics sheet is readable and sourced (30 of 32 values with a binary/config source) but no automated comparison against a running mc exists. |
 | U-3 | Estimated (not sourced) values | "Copy preserves attributes" and "right click marks". |
-| L-1 | No VFS / archives / FTP / SFTP | Menu items disabled. |
+| L-1 | No archives and no shell link | *Shell link…* is disabled. SFTP/FTP: see §5a. |
 | L-2 | No encoding, display-bits, learn-keys | Menu items disabled. |
 | L-3 | Delete is permanent | Trash integration is a post-1.0 candidate. |
 | L-5 | Quick view: PDF shows only the first page; HEIC/PDF depend on macOS `sips`; images inside Markdown are not loaded; highlighting uses syntect's built-in themes and syntax set (two-face extras) | Post-1.0 candidates. |
@@ -296,6 +329,7 @@ src/
   panel.rs        Panel model: entries, cursor, marks, sort, history  (pure logic)
   panel_view.rs   Finder-style panel drawing
   preview.rs      Quick view: images, Markdown (egui_commonmark), syntax highlighting (syntect + two-face), cache
+  vfs.rs          Remote locations: sftp (system sftp) and ftp (system curl), path helpers, ssh host list, download cache
   fsutil.rs       Directory reading, size/date/permission formatting, highlight classes
   ops.rs          Background jobs (copy, move, delete, dirsize, find, shell) + Progress
   dialogs.rs      Standard dialogs + progress / overwrite window
@@ -315,7 +349,8 @@ src/
   Unimplemented items MUST be registered as disabled, not omitted.
 - **ARC-4** Test aids: `myCommander --screenshot out.png` renders one frame headless-ish and exits;
   env `MYCMD_SHOT_MENU=<0..4>` opens menu *n* for the picture; env `MYCMD_SHOT_QV=<file>` shows that file
-  in the right panel's Quick view.
+  in the right panel's Quick view; env `MYCMD_SFTP_SERVER=/usr/libexec/sftp-server` makes `sftp://` talk to a local
+  sftp-server (no network, no keys) – used by the tests; env `MYCMD_FTP_TEST=host:port` enables the FTP round-trip test.
 
 ## 12. Roadmap candidates (post-1.0)
 
