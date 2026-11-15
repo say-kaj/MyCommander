@@ -18,7 +18,7 @@ two side-by-side file panels, function-key driven file operations, quick keyboar
 navigation – but is a real GUI app, not a terminal program. Name: **myCommander**.
 
 **Stack.** Rust 2021, `eframe`/`egui` 0.31 (glow backend), `muda` for the native
-macOS menu bar, `egui_commonmark` (Markdown), `syntect` + `two-face` (highlighting), `image` (decoding). No other UI toolkit.
+macOS menu bar, `egui_commonmark` (Markdown), `syntect` + `two-face` (highlighting), `image` (decoding), `resvg` (SVG). No other UI toolkit.
 
 **Platform.** macOS on Apple Silicon (arm64) only. Intel Macs, Linux and Windows
 are out of scope; release binaries are arm64 only, not universal.
@@ -81,6 +81,8 @@ describes *behaviour*. Binary addresses are given as provenance only.
   | Content | Rendering |
   |---------|-----------|
   | Image (png, jpg/jpeg/jfif, gif, webp, bmp, tif/tiff, ico) | shown as an image, scaled to fit, caption `W × H px · size`; decoded images larger than 2048 px are downscaled for display; files > 64 MB are not decoded |
+  | SVG | rasterised with `resvg` (long side ≤ 2048 px, system fonts), caption `SVG · …` |
+  | HEIC/HEIF, PDF | converted by macOS `sips` to a PNG (long side ≤ 2048 px); PDF shows **page 1 only** |
   | Markdown (`.md`, `.markdown`, `.mdown`) | rendered (headings, lists, links, code, tables) in a scroll area |
   | Source / HTML / shell / config | syntax highlighted with a language-matched colour scheme; language name shown top right |
   | Other text | plain monospace |
@@ -281,7 +283,7 @@ Taken from mc's `mc.default.keymap` (`[filemanager]`, `[panel]`), plus Mac alias
 | L-1 | No VFS / archives / FTP / SFTP | Menu items disabled. |
 | L-2 | No encoding, display-bits, learn-keys | Menu items disabled. |
 | L-3 | Delete is permanent | Trash integration is a post-1.0 candidate. |
-| L-5 | Quick view: no SVG/HEIC/PDF rendering; images inside Markdown are not loaded; highlighting uses syntect's built-in themes and syntax set (two-face extras) | Post-1.0 candidates. |
+| L-5 | Quick view: PDF shows only the first page; HEIC/PDF depend on macOS `sips`; images inside Markdown are not loaded; highlighting uses syntect's built-in themes and syntax set (two-face extras) | Post-1.0 candidates. |
 | L-4 | Tests | Only `ops.rs` has unit tests; panel rules lack automated tests. |
 
 ## 11. Architecture (ARC)

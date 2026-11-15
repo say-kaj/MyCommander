@@ -25,13 +25,15 @@ pub const THEMES: [&str; 7] = [
 const MAX_LINES: usize = 20_000;
 const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 const IMAGE_EXTS: [&str; 10] = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "ico", "jfif"];
+/// Converted to a PNG by macOS `sips` (HEIC, first page of a PDF).
+const SIPS_EXTS: [&str; 3] = ["heic", "heif", "pdf"];
 
 type Segment = (Color32, String);
 
 enum Content {
     Message(String),
     Dir(Vec<(bool, String)>),
-    Image { tex: egui::TextureHandle, orig: [usize; 2], bytes: u64 },
+    Image { tex: egui::TextureHandle, orig: [usize; 2], bytes: u64, note: String },
     Markdown(String),
     Code { lang: String, lines: Vec<Vec<Segment>>, bg: Color32, truncated: bool },
     Text(Vec<String>),
@@ -72,6 +74,40 @@ fn signature(s: &Settings, dark: bool, show_hidden: bool) -> String {
     )
 }
 
+/// Render an SVG to a bitmap (long side at most 2048 px).
+fn render_svg(path: &Path) -> Result<(egui::ColorImage, [usize; 2]), String> {
+    use resvg::{tiny_skia, usvg};
+    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    let mut opt = usvg::Options::default();
+    opt.fontdb_mut().load_system_fonts();
+    let tree = usvg::Tree::from_data(&data, &opt).map_err(|e| e.to_string())?;
+    let size = tree.size();
+    let (w, h) = (size.width().max(1.0), size.height().max(1.0));
+    let scale = (2048.0 / w.max(h)).clamp(0.01, 4.0);
+    let (pw, ph) = (((w * scale).ceil() as u32).max(1), ((h * scale).ceil() as u32).max(1));
+    let mut pix = tiny_skia::Pixmap::new(pw, ph).ok_or("image too large")?;
+    resvg::render(&tree, tiny_skia::Transform::from_scale(scale, scale), &mut pix.as_mut());
+    Ok((egui::ColorImage::from_rgba_premultiplied([pw as usize, ph as usize], pix.data()), [w as usize, h as usize]))
+}
+
+/// macOS only: let `sips` convert HEIC / the first PDF page to a PNG (long side 2048 px).
+fn render_with_sips(path: &Path) -> Result<image::DynamicImage, String> {
+    let tmp = std::env::temp_dir().join(format!("myCommander-qv-{}-{}.png", std::process::id(), path.to_string_lossy().len()));
+    let out = std::process::Command::new("/usr/bin/sips")
+        .args(["-s", "format", "png", "-Z", "2048"])
+        .arg(path)
+        .arg("--out")
+        .arg(&tmp)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    let img = image::open(&tmp).map_err(|e| e.to_string());
+    let _ = std::fs::remove_file(&tmp);
+    img
+}
+
 impl Preview {
     /// Draw the preview of `entry` (or a hint) into `rect`.
     #[allow(clippy::too_many_arguments)]
@@ -104,6 +140,24 @@ impl Preview {
             return Content::Dir(v);
         }
         let ext = ext_of(&e.path);
+        if s.qv_images && ext == "svg" {
+            return match render_svg(&e.path) {
+                Ok((ci, size)) => Content::Image { tex: ctx.load_texture(format!("qv:{}", e.path.display()), ci, egui::TextureOptions::LINEAR), orig: size, bytes: e.size, note: "SVG".into() },
+                Err(err) => Content::Message(format!("Cannot render SVG: {err}")),
+            };
+        }
+        if s.qv_images && SIPS_EXTS.contains(&ext.as_str()) {
+            let note = if ext == "pdf" { "PDF, page 1" } else { "HEIC" };
+            return match render_with_sips(&e.path) {
+                Ok(img) => {
+                    let orig = [img.width() as usize, img.height() as usize];
+                    let rgba = img.to_rgba8();
+                    let ci = egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw());
+                    Content::Image { tex: ctx.load_texture(format!("qv:{}", e.path.display()), ci, egui::TextureOptions::LINEAR), orig, bytes: e.size, note: note.into() }
+                }
+                Err(err) => Content::Message(format!("Cannot render {note}: {err}")),
+            };
+        }
         if s.qv_images && IMAGE_EXTS.contains(&ext.as_str()) {
             if e.size > MAX_IMAGE_BYTES {
                 return Content::Message(format!("Image too large to preview ({} MB)", e.size / 1024 / 1024));
@@ -115,7 +169,7 @@ impl Preview {
                     let rgba = img.to_rgba8();
                     let ci = egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw());
                     let tex = ctx.load_texture(format!("qv:{}", e.path.display()), ci, egui::TextureOptions::LINEAR);
-                    Content::Image { tex, orig, bytes: e.size }
+                    Content::Image { tex, orig, bytes: e.size, note: String::new() }
                 }
                 Err(err) => Content::Message(format!("Cannot decode image: {err}")),
             };
@@ -208,8 +262,11 @@ impl Preview {
                     }
                 });
             }
-            Content::Image { tex, orig, bytes } => {
-                let caption = format!("{} × {} px · {}", orig[0], orig[1], crate::fsutil::size_human(*bytes));
+            Content::Image { tex, orig, bytes, note } => {
+                let mut caption = format!("{} × {} px · {}", orig[0], orig[1], crate::fsutil::size_human(*bytes));
+                if !note.is_empty() {
+                    caption = format!("{note} · {caption}");
+                }
                 let img_area = Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.bottom() - 22.0));
                 let ts = tex.size_vec2();
                 let scale = (img_area.width() / ts.x).min(img_area.height() / ts.y);

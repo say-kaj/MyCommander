@@ -453,7 +453,7 @@ fn options_page(ui: &mut egui::Ui, page: OptPage, s: &mut Settings) {
             ui.checkbox(&mut s.confirm_exit, "Exit");
         }
         OptPage::QuickView => {
-            ui.checkbox(&mut s.qv_images, "Show images as images (png, jpg, gif, webp, bmp, tiff, ico)");
+            ui.checkbox(&mut s.qv_images, "Show images as images (png, jpg, gif, webp, bmp, tiff, ico, svg, heic, pdf page 1)");
             ui.checkbox(&mut s.qv_markdown, "Render Markdown");
             ui.checkbox(&mut s.qv_highlight, "Syntax highlighting (source, HTML, shell, config files …)");
             ui.add_enabled_ui(s.qv_highlight, |ui| {
