@@ -20,8 +20,8 @@ navigation – but is a real GUI app, not a terminal program. Name: **myCommande
 **Stack.** Rust 2021, `eframe`/`egui` 0.31 (glow backend), `muda` for the native
 macOS menu bar. No other UI toolkit.
 
-**Platform.** macOS (primary, tested). The code compiles with few platform
-guards, but other platforms are out of scope for 1.0.
+**Platform.** macOS on Apple Silicon (arm64) only. Intel Macs, Linux and Windows
+are out of scope; release binaries are arm64 only, not universal.
 
 **Non-goals for 1.0**
 - No virtual file systems (archives, FTP, SFTP, shell links).
@@ -291,30 +291,13 @@ src/
 - **ARC-4** Test aids: `myCommander --screenshot out.png` renders one frame headless-ish and exits;
   env `MYCMD_SHOT_MENU=<0..4>` opens menu *n* for the picture.
 
-## 12. Provenance of mc facts
-
-Source: `midnight-commander 4.8.33`, `libexec/bin/mc` (Mach-O arm64), `etc/mc/mc.default.keymap`,
-`etc/mc/filehighlight.ini`, `share/mc/skins/default.ini`. Function entry addresses:
-
-| Topic | Function (address) |
-|-------|--------------------|
-| Menu build | `_do_nc` 0x10001f4d0, `_create_panel_menu` 0x100021250, strings 0x1000a12a0.. |
-| Button bar | `_midnight_set_buttonbar` 0x10001ebdc |
-| Listing formats | `_set_panel_formats` 0x10002afe4, strings 0x1000a22c0 |
-| Size column | `_string_file_size` 0x100030f54, `_size_trunc_len` 0x10006bf60, `_string_file_size_brief` 0x1000310c8 |
-| Date column | `_file_date` 0x10006f210, `_load_setup` 0x1000074f4 |
-| Sorting | `_sort_name` 0x100014760 and siblings 0x100014758–0x100015318 |
-| Marking | `_do_file_mark` 0x10002c0e8, `_display_total_marked_size` 0x10002e918 |
-| Mini info | `_display_mini_info` 0x10002db44, `_my_statfs` 0x100029c34 |
-| File operations | `_panel_operate` 0x10001abe0, `_panel_operate_generate_prompt` 0x10001bf68, `_mkdir_cmd` 0x100012598 |
-
-## 13. Roadmap candidates (post-1.0)
+## 12. Roadmap candidates (post-1.0)
 
 Move-to-Trash, unit tests for panel rules, Quick Look integration, mc-style
 extension rules for *open with*, archive browsing (read-only), configurable key map,
 cross-platform support (Linux/Windows) behind the existing platform guards.
 
-## 14. Rules for coding agents
+## 13. Rules for coding agents
 
 1. Read this spec and `AGENTS.md` before changing code; cite requirement IDs in commits.
 2. Behaviour in §4–§7 is normative; do not "improve" it without changing the spec first.

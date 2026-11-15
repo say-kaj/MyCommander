@@ -17,7 +17,7 @@ See [`docs/SPEC.md`](docs/SPEC.md) for the full specification and known limitati
 
 ## Build and run
 
-Requires macOS and a recent stable Rust toolchain.
+Requires macOS on Apple Silicon (M-series, arm64) and a recent stable Rust toolchain. Intel Macs are not supported.
 
 ```sh
 cargo run --release -- [left-dir] [right-dir]
