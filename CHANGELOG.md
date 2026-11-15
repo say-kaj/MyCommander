@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.1.1
+- Fix: SFTP was very slow because every operation opened a new ssh connection. One multiplexed connection per host is now reused; listings are cached for 5 s and Quick view of remote files is debounced.
+
 ## 1.1.0
 - Slim toolbar: only *Find files* and *Show/Hide Hidden*.
 - Quick view shows images (incl. SVG, HEIC, PDF page 1) as images, renders Markdown and syntax-highlights source, HTML, shell and config files; configurable in Options ▸ Quick view.

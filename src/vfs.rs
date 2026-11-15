@@ -274,6 +274,70 @@ fn friendly_ssh_error(stderr: &str, host: &str) -> String {
     }
 }
 
+/// `sftp` itself never leaves a persistent ssh master behind (checked with OpenSSH 9), so every call
+/// paid for a full connection + authentication. Start the master with plain `ssh` instead and let
+/// `sftp` ride on it (`ControlMaster=no` + same `ControlPath`). The master idles out after 120 s.
+/// Test aid: MYCMD_SSH_OPTS="-o StrictHostKeyChecking=no …" is added to every ssh/sftp call.
+fn extra_opts() -> Vec<String> {
+    std::env::var("MYCMD_SSH_OPTS").map(|s| s.split_whitespace().map(String::from).collect()).unwrap_or_default()
+}
+
+fn ensure_master(dest: &str, port: Option<&str>) -> io::Result<()> {
+    let cp = format!("ControlPath={}/%C", control_dir().display());
+    let mut check = Command::new("/usr/bin/ssh");
+    check.args(["-O", "check", "-o", &cp]).args(extra_opts());
+    if let Some(p) = port {
+        check.args(["-p", p]);
+    }
+    check.arg(dest).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    if check.status().map(|s| s.success()).unwrap_or(false) {
+        return Ok(());
+    }
+    // stderr goes to a file, not a pipe: the detached master would keep a pipe open and block us.
+    let log = std::env::temp_dir().join(format!("myCommander-ssh-{}.log", std::process::id()));
+    let logf = std::fs::File::create(&log)?;
+    let mut m = Command::new("/usr/bin/ssh");
+    m.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "ControlMaster=auto", "-o", &cp, "-o", "ControlPersist=120"]).args(extra_opts());
+    if let Some(p) = port {
+        m.args(["-p", p]);
+    }
+    m.arg(dest).arg("true").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::from(logf));
+    let t0 = std::time::Instant::now();
+    let st = m.status().map_err(|e| err(format!("Cannot run ssh: {e}")))?;
+    let msg = std::fs::read_to_string(&log).unwrap_or_default();
+    let _ = std::fs::remove_file(&log);
+    if std::env::var_os("MYCMD_VFS_DEBUG").is_some() {
+        eprintln!("[vfs] ssh master {dest}: {} ms", t0.elapsed().as_millis());
+    }
+    if st.success() {
+        masters().insert((dest.to_string(), port.map(String::from)));
+        Ok(())
+    } else {
+        Err(err(friendly_ssh_error(&msg, dest)))
+    }
+}
+
+type Masters = std::collections::HashSet<(String, Option<String>)>;
+
+/// Hosts for which this run started an ssh master.
+fn masters() -> std::sync::MutexGuard<'static, Masters> {
+    static M: std::sync::OnceLock<std::sync::Mutex<Masters>> = std::sync::OnceLock::new();
+    M.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Close the ssh masters we started (called on quit; otherwise they idle out after 120 s).
+pub fn shutdown() {
+    let cp = format!("ControlPath={}/%C", control_dir().display());
+    for (dest, port) in masters().drain() {
+        let mut c = Command::new("/usr/bin/ssh");
+        c.args(["-O", "exit", "-o", &cp]).args(extra_opts());
+        if let Some(p) = &port {
+            c.args(["-p", p]);
+        }
+        let _ = c.arg(&dest).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
+}
+
 /// Run sftp commands against `host` in batch mode. Returns stdout without the echoed commands.
 fn sftp(host: &str, script: &str) -> io::Result<String> {
     check_host(host)?;
@@ -285,7 +349,8 @@ fn sftp(host: &str, script: &str) -> io::Result<String> {
     if let Some(server) = std::env::var_os("MYCMD_SFTP_SERVER") {
         cmd.arg("-D").arg(server);
     } else {
-        cmd.args(["-o", "BatchMode=yes", "-o", "ControlMaster=auto", "-o", &cp, "-o", "ControlPersist=120", "-o", "ConnectTimeout=15"]);
+        ensure_master(dest, port)?;
+        cmd.args(["-o", "BatchMode=yes", "-o", "ControlMaster=no", "-o", &cp, "-o", "ConnectTimeout=15"]).args(extra_opts());
         if let Some(p) = port {
             cmd.args(["-P", p]);
         }
@@ -298,7 +363,11 @@ fn sftp(host: &str, script: &str) -> io::Result<String> {
         .spawn()
         .map_err(|e| err(format!("Cannot run sftp: {e}")))?;
     child.stdin.take().unwrap().write_all(script.as_bytes())?;
+    let t0 = std::time::Instant::now();
     let out = child.wait_with_output()?;
+    if std::env::var_os("MYCMD_VFS_DEBUG").is_some() {
+        eprintln!("[vfs] sftp {host}: {} ({} ms)", script.lines().next().unwrap_or(""), t0.elapsed().as_millis());
+    }
     let stdout: String = String::from_utf8_lossy(&out.stdout).lines().filter(|l| !l.starts_with("sftp> ")).collect::<Vec<_>>().join("\n");
     if out.status.success() {
         Ok(stdout)
@@ -456,8 +525,73 @@ fn parse_ls_time(mon: &str, day: &str, ty: &str) -> Option<i64> {
 
 // ---------------------------------------------------------------- public operations
 
+// ---- short-lived listing cache: one directory is often asked for several times in a row
+// (enter a folder, find an entry, check an overwrite, …). Every remote call costs a process
+// start and a round trip, so repeated questions are answered from here for a few seconds.
+// Mutations patch the cache; the Rescan / reload commands drop it.
+
+const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+
+type Cache = std::collections::HashMap<PathBuf, (std::time::Instant, Vec<Entry>)>;
+
+fn cache() -> std::sync::MutexGuard<'static, Cache> {
+    static C: std::sync::OnceLock<std::sync::Mutex<Cache>> = std::sync::OnceLock::new();
+    C.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Forget what is cached for a folder (and its parent), e.g. before an explicit re-read.
+pub fn invalidate(p: &Path) {
+    if !is_remote(p) {
+        return;
+    }
+    let mut c = cache();
+    let key = normalize(p);
+    c.remove(&key);
+    if let Some(up) = parent(&key) {
+        c.remove(&up);
+    }
+}
+
+fn cache_add(path: &Path, kind: Kind, size: u64) {
+    let Some(up) = parent(path) else { return };
+    let mut c = cache();
+    if let Some((_, v)) = c.get_mut(&normalize(&up)) {
+        let name = base_name(path);
+        v.retain(|e| e.name != name);
+        let mut e = root_entry(path);
+        e.name = name;
+        e.kind = kind;
+        e.size = size;
+        e.mode = if kind == Kind::Dir { 0o040755 } else { 0o100644 };
+        e.mtime = chrono::Utc::now().timestamp();
+        v.push(e);
+    }
+}
+
+fn cache_remove(path: &Path) {
+    let Some(up) = parent(path) else { return };
+    let mut c = cache();
+    if let Some((_, v)) = c.get_mut(&normalize(&up)) {
+        let name = base_name(path);
+        v.retain(|e| e.name != name);
+    }
+    c.remove(&normalize(path));
+}
+
 /// Children of a remote folder (without `.` and `..`).
 pub fn list(p: &Path) -> io::Result<Vec<Entry>> {
+    let key = normalize(p);
+    if let Some((t, v)) = cache().get(&key) {
+        if t.elapsed() < CACHE_TTL {
+            return Ok(v.clone());
+        }
+    }
+    let v = list_uncached(p)?;
+    cache().insert(key, (std::time::Instant::now(), v.clone()));
+    Ok(v)
+}
+
+fn list_uncached(p: &Path) -> io::Result<Vec<Entry>> {
     let l = parse(p).ok_or_else(|| err("not a remote path"))?;
     let text = match l.scheme {
         Scheme::Sftp => sftp(&l.host, &format!("ls -lan {}\n", qg(&l.path)))?,
@@ -529,14 +663,19 @@ pub fn mkdir(p: &Path) -> io::Result<()> {
         Scheme::Sftp => sftp(&l.host, &format!("mkdir {}\n", q(&l.path))).map(|_| ()),
         Scheme::Ftp => ftp_cmd(&l, &[format!("MKD {}", l.path.trim_start_matches('/'))]),
     }
+    .map(|_| cache_add(p, Kind::Dir, 0))
 }
 
 pub fn remove(p: &Path, is_dir: bool) -> io::Result<()> {
     let l = parse(p).ok_or_else(|| err("not a remote path"))?;
-    match l.scheme {
+    let r = match l.scheme {
         Scheme::Sftp => sftp(&l.host, &format!("{} {}\n", if is_dir { "rmdir" } else { "rm" }, if is_dir { q(&l.path) } else { qg(&l.path) })).map(|_| ()),
         Scheme::Ftp => ftp_cmd(&l, &[format!("{} {}", if is_dir { "RMD" } else { "DELE" }, l.path.trim_start_matches('/'))]),
+    };
+    if r.is_ok() {
+        cache_remove(p);
     }
+    r
 }
 
 /// Rename within one remote host.
@@ -545,10 +684,16 @@ pub fn rename(from: &Path, to: &Path) -> io::Result<()> {
     if a.scheme != b.scheme || a.host != b.host {
         return Err(err("Cannot rename between different hosts"));
     }
-    match a.scheme {
+    let (kind, size) = entry_of(from).map(|e| (e.kind, e.size)).unwrap_or((Kind::File, 0));
+    let r = match a.scheme {
         Scheme::Sftp => sftp(&a.host, &format!("rename {} {}\n", q(&a.path), q(&b.path))).map(|_| ()),
         Scheme::Ftp => ftp_cmd(&a, &[format!("RNFR {}", a.path.trim_start_matches('/')), format!("RNTO {}", b.path.trim_start_matches('/'))]),
+    };
+    if r.is_ok() {
+        cache_remove(from);
+        cache_add(to, kind, size);
     }
+    r
 }
 
 pub fn same_host(a: &Path, b: &Path) -> bool {
@@ -574,6 +719,7 @@ pub fn upload(local: &Path, p: &Path) -> io::Result<()> {
         Scheme::Sftp => sftp(&l.host, &format!("put -p {} {}\n", qg(&lp), q(&l.path))).map(|_| ()),
         Scheme::Ftp => curl(&["-T", &lp], &ftp_url(&l, false)).map(|_| ()),
     }
+    .map(|_| cache_add(p, Kind::File, std::fs::metadata(local).map(|m| m.len()).unwrap_or(0)))
 }
 
 /// Download a remote file into the cache folder and return the local copy
@@ -598,6 +744,7 @@ pub fn cache_dir() -> PathBuf {
 
 /// Remove downloaded copies (called on quit).
 pub fn clear_cache() {
+    shutdown();
     let _ = std::fs::remove_dir_all(cache_dir());
 }
 
@@ -702,5 +849,19 @@ mod tests {
         assert!(!exists(&join(&root, "dir one/up #1.txt")));
         assert!(!exists(&join(&root, "made two")));
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    /// Real ssh + sftp through one multiplexed connection. Needs MYCMD_SSH_TEST=host:port (and
+    /// MYCMD_SSH_OPTS for host-key options); skipped otherwise.
+    #[test]
+    fn sftp_over_ssh_reuses_one_connection() {
+        let Ok(host) = std::env::var("MYCMD_SSH_TEST") else { return };
+        let root = build(Scheme::Sftp, &host, "/private/tmp");
+        let t0 = std::time::Instant::now();
+        for _ in 0..8 {
+            invalidate(&root);
+            list(&root).unwrap();
+        }
+        eprintln!("8 listings over ssh: {} ms", t0.elapsed().as_millis());
     }
 }

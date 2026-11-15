@@ -147,6 +147,7 @@ impl Panel {
 
     /// Re-read the folder, keeping marks and the cursor on the same name if possible.
     pub fn reload(&mut self) {
+        crate::vfs::invalidate(&self.dir);
         let name = self.current().map(|e| e.name.clone());
         self.reload_keep(name);
     }

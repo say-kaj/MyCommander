@@ -198,7 +198,12 @@ Implemented in `vfs.rs`. **Nothing myCommander-specific is configured**: it reus
   an alias from `~/.ssh/config` (user, port, IdentityFile, ProxyJump, …), `user@host` or `host:port`. Authentication is
   **keys only** (ssh agent, keychain, `IdentityFile`); `BatchMode=yes`, so a password prompt never appears.
   Unknown host keys are **not** auto-accepted: the error tells the person to run `ssh <host>` once in Terminal.
-  Connections are shared via `ControlMaster`/`ControlPersist=120` (control sockets in `/tmp/myCommander-ssh-<uid>/`, mode 0700).
+  **One ssh connection per host is reused for all operations**: a master is started with plain `ssh` (`ControlMaster=auto`,
+  `ControlPersist=120`, socket in `/tmp/myCommander-ssh-<uid>/`, mode 0700) and every `sftp` call attaches to it
+  (`ControlMaster=no`, same `ControlPath`). `sftp` alone does *not* leave a master behind, so starting it ourselves is
+  essential for speed (without it every list/copy paid a full handshake + authentication). Masters are closed on quit.
+- **VFS-2a** Listings are cached for 5 s (`vfs.rs`); mutations patch the cache, Rescan/reload drops it. Quick view of a
+  remote file waits 350 ms for the cursor to rest before downloading.
 - **VFS-3** **FTP** runs the system `/usr/bin/curl` with `--netrc-optional`; credentials come from `~/.netrc`
   (otherwise anonymous). Paths are relative to the login folder. Only Unix-style `LIST` output is understood.
   FTP is unencrypted; the UI does not hide that.
@@ -365,7 +370,8 @@ src/
 - **ARC-4** Test aids: `myCommander --screenshot out.png` renders one frame headless-ish and exits;
   env `MYCMD_SHOT_MENU=<0..4>` opens menu *n* for the picture; env `MYCMD_SHOT_QV=<file>` shows that file
   in the right panel's Quick view; env `MYCMD_SFTP_SERVER=/usr/libexec/sftp-server` makes `sftp://` talk to a local
-  sftp-server (no network, no keys) – used by the tests; env `MYCMD_FTP_TEST=host:port` enables the FTP round-trip test.
+  sftp-server (no network, no keys) – used by the tests; env `MYCMD_FTP_TEST=host:port` enables the FTP round-trip test; env `MYCMD_SSH_TEST=host:port` + `MYCMD_SSH_OPTS="-o …"` enable the
+  real-ssh test (one connection for many listings); env `MYCMD_VFS_DEBUG=1` logs every remote call with its duration to stderr.
 
 ## 12. Roadmap candidates (post-1.0)
 

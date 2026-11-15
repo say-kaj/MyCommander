@@ -49,6 +49,9 @@ struct Key {
 }
 
 struct Pending {
+    /// The download only starts once the cursor has rested on the file for a moment.
+    due: std::time::Instant,
+    started: bool,
     entry: crate::fsutil::Entry,
     slot: std::sync::Arc<std::sync::Mutex<Option<Result<PathBuf, String>>>>,
 }
@@ -136,12 +139,7 @@ impl Preview {
                             Content::Message(format!("Remote file too large for quick view ({} MB) – press F3 to download it", e.size / 1024 / 1024))
                         } else {
                             let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
-                            let (s2, p2, sz) = (slot.clone(), e.path.clone(), e.size);
-                            std::thread::spawn(move || {
-                                let r = crate::vfs::fetch(&p2, sz, MAX_REMOTE_BYTES).map_err(|e| e.to_string());
-                                *s2.lock().unwrap() = Some(r);
-                            });
-                            self.pending = Some(Pending { entry: e.clone(), slot });
+                            self.pending = Some(Pending { due: std::time::Instant::now() + std::time::Duration::from_millis(350), started: false, entry: e.clone(), slot });
                             Content::Message("Loading …".into())
                         };
                     } else {
@@ -150,7 +148,15 @@ impl Preview {
                     self.md_cache = CommonMarkCache::default();
                     self.key = Some(key);
                 }
-                if let Some(p) = &self.pending {
+                if let Some(p) = &mut self.pending {
+                    if !p.started && std::time::Instant::now() >= p.due {
+                        p.started = true;
+                        let (s2, p2, sz) = (p.slot.clone(), p.entry.path.clone(), p.entry.size);
+                        std::thread::spawn(move || {
+                            let r = crate::vfs::fetch(&p2, sz, MAX_REMOTE_BYTES).map_err(|e| e.to_string());
+                            *s2.lock().unwrap() = Some(r);
+                        });
+                    }
                     let done = p.slot.lock().unwrap().take();
                     match done {
                         Some(res) => {
