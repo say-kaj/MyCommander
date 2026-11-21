@@ -185,6 +185,7 @@ pub struct App {
     pub char_w: f32,
     pub quit_asked: bool,
     pub update_started: bool,
+    pub last_update_check: std::time::Instant,
     pub pal: crate::theme::Pal,
     pub native_menu: Option<crate::native_menu::NativeMenu>,
     pub search_text: String,
@@ -253,6 +254,7 @@ impl App {
             preview: Default::default(),
             quit_asked: false,
             update_started: false,
+            last_update_check: std::time::Instant::now(),
             pal,
             native_menu,
             search_text: String::new(),
@@ -1224,6 +1226,15 @@ impl eframe::App for App {
                 crate::update::check_async();
             }
         }
+        // Long-running sessions: look again every 30 minutes, so the button also appears
+        // without a restart.
+        if self.screenshot.is_none() && self.settings.check_updates && self.last_update_check.elapsed() > std::time::Duration::from_secs(1800) {
+            self.last_update_check = std::time::Instant::now();
+            if matches!(crate::update::state(), crate::update::State::Idle | crate::update::State::UpToDate) {
+                crate::update::check_async();
+            }
+        }
+        ctx.request_repaint_after(std::time::Duration::from_secs(60));
         if crate::update::busy() {
             ctx.request_repaint_after(std::time::Duration::from_millis(300));
         }

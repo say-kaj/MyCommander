@@ -400,7 +400,7 @@ cross-platform support (Linux/Windows) behind the existing platform guards.
 ## 13. Updates (UPD)
 - **UPD-1** At startup (setting `check_updates`, Settings ▸ General, default on) the app asks
   `api.github.com/repos/say-kaj/MyCommander/releases/latest` once, in the background, using the
-  system `curl`. No data about the user or machine is sent. Offline or errors are silent.
+  system `curl`. No data about the user or machine is sent. The check repeats every 30 minutes while the app runs. Offline or errors are silent.
 - **UPD-2** If the release tag is newer than the running version, the toolbar shows
   **⬆ Update to X.Y.Z** at its right edge.
 - **UPD-3** Clicking it downloads the `*macos-arm64.zip` asset, unpacks it, verifies `codesign` and the
@@ -409,3 +409,7 @@ cross-platform support (Linux/Windows) behind the existing platform guards.
   Not available when run outside an .app bundle.
 - **UPD-4** Homebrew keeps working: `brew upgrade --cask mycommander` simply installs the same release.
 - Test aids: `MYCMD_UPDATE_TEST="<ver>|<zip url>"` fakes a release, `MYCMD_UPDATE_AUTO=1` installs it at once.
+- **UPD-5** Releases are signed with the stable identity *myCommander Release Signing* (`scripts/make_signing_identity.sh`,
+  used by `scripts/package.sh`). The designated requirement is `identifier "io.github.say-kaj.mycommander" and certificate leaf = H"…"`,
+  so macOS privacy grants (Documents, Downloads, volumes …) survive updates. Ad-hoc signing (requirement = binary hash) would
+  make macOS forget them on every update. The signing key backup lives in `~/.myCommander-signing/` and is never committed.

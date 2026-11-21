@@ -26,7 +26,18 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
 </dict></plist>
 EOF
-codesign --force --deep --sign - "$APP"
+# A stable signing identity keeps macOS privacy grants (Documents, Downloads, volumes ...)
+# across updates: the designated requirement is "bundle id + certificate", not the binary
+# hash. Create it once with scripts/make_signing_identity.sh; without it we fall back to
+# ad-hoc signing, which makes macOS forget the grants on every update.
+ID="myCommander Release Signing"
+if security find-identity -p codesigning 2>/dev/null | grep -q "$ID"; then
+  codesign --force --deep --sign "$ID" "$APP"
+else
+  echo "WARNING: signing identity '$ID' not found - ad-hoc signing (privacy grants will not survive updates)" >&2
+  codesign --force --deep --sign - "$APP"
+fi
+codesign -d -r- "$APP" 2>&1 | tail -1
 ZIP="dist/myCommander-$VERSION-macos-arm64.zip"
 ditto -c -k --keepParent "$APP" "$ZIP"
 echo "$ZIP"; shasum -a 256 "$ZIP"

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.2
+- Fix: macOS forgot the folder access you had granted after every update. Releases are now signed with a stable identity (SPEC UPD-5). Grants have to be given once more after the first update to this version.
+- The update check repeats every 30 minutes, so the Update button also appears without restarting the app.
+
 ## 1.2.1
 - The *Options* menu is gone: a direct **Settings** button ends the menu bar (⌘, still works); *Save setup* moved to the Command menu.
 
