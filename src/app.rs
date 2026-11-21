@@ -192,7 +192,7 @@ pub struct App {
     /// The last Find / External panelize result, for Left/Right > Panelize.
     pub last_panelize: Option<(PathBuf, Vec<PathBuf>)>,
     /// x position of each menu title in the menu bar (for placing the drop-down).
-    pub menu_x: [f32; 5],
+    pub menu_x: [f32; 4],
 }
 
 impl App {
@@ -257,7 +257,7 @@ impl App {
             native_menu,
             search_text: String::new(),
             last_panelize: None,
-            menu_x: [12.0, 70.0, 130.0, 220.0, 300.0],
+            menu_x: [12.0, 70.0, 130.0, 220.0],
         }
     }
 
@@ -516,7 +516,7 @@ impl App {
         match a {
             Action::Help => self.dialog = Some(Dialog::Help),
             Action::UserMenu => self.menu = Some(MenuState { top: 0, sel: 0, user: true }),
-            Action::Menu => self.menu = Some(MenuState { top: if self.active == 0 { 0 } else { 4 }, sel: 0, user: false }),
+            Action::Menu => self.menu = Some(MenuState { top: if self.active == 0 { 0 } else { 3 }, sel: 0, user: false }),
             Action::View => {
                 let Some(e) = self.act().current().cloned() else { return };
                 if e.is_updir() {

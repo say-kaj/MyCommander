@@ -571,7 +571,7 @@ impl App {
         if self.frame == 80 {
             // Test aid: MYCMD_SHOT_MENU=<0..4> opens that mc menu for the picture.
             if let Some(i) = std::env::var("MYCMD_SHOT_MENU").ok().and_then(|v| v.parse::<usize>().ok()) {
-                self.menu = Some(crate::app::MenuState { top: i.min(4), sel: 0, user: false });
+                self.menu = Some(crate::app::MenuState { top: i.min(3), sel: 0, user: false });
             }
         }
         if self.frame == 80 {

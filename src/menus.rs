@@ -20,11 +20,11 @@ fn sep() -> MItem {
     MItem { label: "", key: "", action: None, enabled: false }
 }
 
-pub const TITLES: [&str; 5] = ["Left", "File", "Command", "Options", "Right"];
+pub const TITLES: [&str; 4] = ["Left", "File", "Command", "Right"];
 
 pub fn items(idx: usize) -> Vec<MItem> {
     match idx {
-        0 | 4 => {
+        0 | 3 => {
             let p = if idx == 0 { 0 } else { 1 };
             vec![
                 it("File listing", "", Action::ShowListing(p)),
@@ -86,11 +86,9 @@ pub fn items(idx: usize) -> Vec<MItem> {
             it("Background jobs", "⌃X J", Action::BackgroundJobs),
             sep(),
             it("Edit menu file", "", Action::EditMenuFile),
-        ],
-        _ => vec![
-            it("Settings…", "⌘,", Action::Config),
             sep(),
             it("Save setup", "", Action::SaveSetup),
         ],
+        _ => Vec::new(),
     }
 }

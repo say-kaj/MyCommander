@@ -54,13 +54,13 @@ describes *behaviour*. Binary addresses are given as provenance only.
 ## 3. Screen layout (LAY)
 
 - **LAY-1** Top to bottom: unified toolbar in the title bar → in-window menu bar
-  (`Left File Command Options Right`) → two panels → command line → function-key bar.
+  (`Left File Command Right` plus a Settings button) → two panels → command line → function-key bar.
 - **LAY-1a** The toolbar contains **only** the *Find files* field and the *Show/Hide Hidden* button
   (right-aligned). Back/forward, current-folder title, View/Edit/Copy/Move/New Folder/Delete and the
   List/Compact/Details switches are intentionally absent: they are redundant with the path bar,
   the function-key bar, the menus and `Alt-T`.
 - **LAY-2** The window MUST also provide a real macOS menu bar:
-  `myCommander · Left · File · Command · Options · Right · Help`. Its items
+  `myCommander · Left · File · Command · Right · Help`. Its items
   come from the same table as the in-window menu (`menus.rs`) so both always match.
 - **LAY-3** Default window 1280×800, minimum 760×440.
 - **LAY-4** The active panel shows the selection bar; the inactive one a dimmed one.
@@ -263,8 +263,8 @@ Identical in the in-window menu bar, the macOS menu bar and the F9 pull-downs.
 - **Command:** User menu, Directory tree, Find file, Swap panels, Switch panels on/off,
   Compare directories, Compare files, External panelize, Show directory sizes,
   Command history, Viewed/edited files history, Directory hotlist,
-  Background jobs, Edit menu file.
-- **Options:** Settings… (⌘,), Save setup. **MNU-0** Settings is one window with the tabs *General* (startup, updates, confirmations), *Panels* (listing, folder sizes, arrangement, keyboard), *Appearance* (theme, text size, window elements) and *Quick View*. Changes apply immediately; *Done* (or Esc/Return) closes it. There are no OK/Cancel buttons and no duplicated options.
+  Background jobs, Edit menu file, Save setup.
+- **Settings** is not a pull-down: the menu bar ends with a direct **Settings** button (and ⌘,, and the macOS app menu), so there is no menu with a single entry. *Save setup* lives at the end of the Command menu. **MNU-0** Settings is one window with the tabs *General* (startup, updates, confirmations), *Panels* (listing, folder sizes, arrangement, keyboard), *Appearance* (theme, text size, window elements) and *Quick View*. Changes apply immediately; *Done* (or Esc/Return) closes it. There are no OK/Cancel buttons and no duplicated options.
 - **MNU-1** The user menu (F2) reads `menu.txt` from the config directory; entries
   support the substitutions `%f` (current file), `%d` (current dir), `%F` / `%D`
   (same for the other panel).
@@ -363,11 +363,11 @@ src/
   dirsize.rs      Background folder sizes (getattrlistbulk worker pool, cache; PNL-12a)
   ops.rs          Background jobs (copy, move, delete, dirsize, find, shell) + Progress
   dialogs.rs      Standard dialogs + progress / overwrite window
-  dialogs2.rs     Link, chown, filtered view, quick cd, panelize, history, Options pages
+  dialogs2.rs     Link, chown, filtered view, quick cd, panelize, history, Settings tabs
   screens.rs      Viewer (F3), editor (F4), command output, --screenshot capture
   menus.rs        The menu table (single source for both menu bars)
   native_menu.rs  macOS menu bar via muda
-  settings.rs     settings.json, menu.txt, Options data
+  settings.rs     settings.json, menu.txt, Settings data
   theme.rs        Light/dark palettes, file-type colours
   util.rs         Key helpers, text shortening, fonts, widget style
 ```

@@ -178,6 +178,7 @@ impl App {
         let as_titlebar = !self.settings.show_toolbar;
         let height = if as_titlebar { 40.0 } else { 30.0 };
         let mut clicked: Option<usize> = None;
+        let mut settings_click = false;
         let fs = self.settings.font_size;
         egui::TopBottomPanel::top("mc_menubar")
             .exact_height(height)
@@ -220,12 +221,25 @@ impl App {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(12.0);
+                        let g = ui.painter().layout_no_wrap("Settings".to_string(), FontId::proportional(fs), pal.text);
+                        let (r, resp) = ui.allocate_exact_size(Vec2::new(g.size().x + 20.0, 22.0), Sense::click());
+                        if resp.hovered() {
+                            ui.painter().rect_filled(r, 5.0, pal.control_hover);
+                        }
+                        ui.painter().galley(r.center() - g.size() / 2.0, g, pal.text);
+                        if resp.on_hover_text("Settings (⌘,)").clicked() && self.dialog.is_none() {
+                            settings_click = true;
+                        }
                         let p = &self.panels[self.active];
                         let side = if self.active == 0 { "Left panel" } else { "Right panel" };
                         ui.label(egui::RichText::new(format!("{} · {}", side, p.sort.mode.label())).small().color(pal.text_faint));
                     });
                 });
             });
+        if settings_click {
+            self.menu = None;
+            self.do_action(ctx, Action::Config);
+        }
         if let Some(i) = clicked {
             let same = self.menu.as_ref().map(|m| !m.user && m.top == i).unwrap_or(false);
             self.menu = if same { None } else { Some(MenuState { top: i, sel: 0, user: false }) };
@@ -273,10 +287,10 @@ impl App {
         }
         if !user {
             if take(ctx, Key::ArrowRight, NONE) {
-                top = (top + 1) % 5;
+                top = (top + 1) % 4;
             }
             if take(ctx, Key::ArrowLeft, NONE) {
-                top = (top + 4) % 5;
+                top = (top + 3) % 4;
             }
         }
         if take(ctx, Key::Enter, NONE) {

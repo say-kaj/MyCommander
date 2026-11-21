@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.2.1
+- The *Options* menu is gone: a direct **Settings** button ends the menu bar (⌘, still works); *Save setup* moved to the Command menu.
+
 ## 1.2.0
 - One **Settings** window (⌘,) with tabs General, Panels, Appearance and Quick View replaces the six separate Options dialogs; changes apply immediately, duplicated options are gone.
 - Removed the unusable menu items *Display bits*, *Learn keys*, *Screen list*, *Edit extension file* and *Edit highlighting group file* (terminal-only).
