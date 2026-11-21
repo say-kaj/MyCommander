@@ -1,6 +1,5 @@
 //! Saved setup ("Options > Save setup"): panel folders, sort, listing, hotlist,
-//! and the Options dialogs (Configuration, Layout, Panel options, Confirmation,
-//! Appearance).
+//! and the Settings window.
 
 use crate::panel::{Listing, SortOptions};
 use serde::{Deserialize, Serialize};
@@ -41,6 +40,10 @@ pub struct Settings {
     pub show_mini_status: bool,
     pub lynx_motion: bool,
     pub mix_all_files: bool,
+    /// Calculate folder sizes in the background (PNL-14).
+    pub dir_sizes: bool,
+    /// Look for a new release at startup (SPEC §12).
+    pub check_updates: bool,
     // Confirmation
     pub confirm_delete: bool,
     pub confirm_overwrite: bool,
@@ -81,6 +84,8 @@ impl Default for Settings {
             show_mini_status: true,
             lynx_motion: false,
             mix_all_files: false,
+            dir_sizes: true,
+            check_updates: true,
             confirm_delete: true,
             confirm_overwrite: true,
             confirm_execute: false,

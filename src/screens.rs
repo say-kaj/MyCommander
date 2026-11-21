@@ -574,6 +574,13 @@ impl App {
                 self.menu = Some(crate::app::MenuState { top: i.min(4), sel: 0, user: false });
             }
         }
+        if self.frame == 80 {
+            // Test aid: MYCMD_SHOT_OPT=<0..3> opens that Settings tab for the picture.
+            if let Some(i) = std::env::var("MYCMD_SHOT_OPT").ok().and_then(|v| v.parse::<usize>().ok()) {
+                let page = crate::app::OptPage::ALL[i.min(3)];
+                self.dialog = Some(crate::app::Dialog::Options { page, s: Box::new(self.settings.clone()) });
+            }
+        }
         if self.frame >= 120 && !self.screenshot_requested {
             self.screenshot_requested = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));

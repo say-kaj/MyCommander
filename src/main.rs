@@ -5,6 +5,7 @@ mod app;
 mod native_menu;
 mod dialogs;
 mod dialogs2;
+mod dirsize;
 mod menus;
 mod fsutil;
 mod ops;
@@ -16,6 +17,7 @@ mod settings;
 mod textenc;
 mod theme;
 mod ui_main;
+mod update;
 mod util;
 mod vfs;
 

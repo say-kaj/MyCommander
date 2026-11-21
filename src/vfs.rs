@@ -499,6 +499,7 @@ fn parse_ls_line(parent: &Path, line: &str) -> Option<Entry> {
         ctime: mtime,
         marked: false,
         dir_size: None,
+        dir_size_auto: false,
     })
 }
 
@@ -639,6 +640,7 @@ pub fn root_entry(p: &Path) -> Entry {
         ctime: 0,
         marked: false,
         dir_size: None,
+        dir_size_auto: false,
     }
 }
 

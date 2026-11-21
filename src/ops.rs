@@ -675,7 +675,7 @@ pub fn start_file_op(kind: OpKind, sources: Vec<PathBuf>, dest: Option<PathBuf>)
     start_file_op_with(kind, sources, dest, true)
 }
 
-/// `ask_overwrite` false = Options > Confirmation "overwrite" off: replace without asking.
+/// `ask_overwrite` false = Settings > General "overwrite" off: replace without asking.
 pub fn start_file_op_with(kind: OpKind, sources: Vec<PathBuf>, dest: Option<PathBuf>, ask_overwrite: bool) -> Shared {
     if any_remote(&sources, &dest) {
         return start_remote_op(kind, sources, dest, ask_overwrite);

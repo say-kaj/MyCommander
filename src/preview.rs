@@ -1,6 +1,6 @@
 //! Quick View content: images are shown as images, Markdown is rendered,
 //! source code / HTML / shell scripts / config files are syntax highlighted.
-//! Everything is configurable in Options > Quick view (see `settings.rs`).
+//! Everything is configurable in Settings > Quick View (see `settings.rs`).
 //! Loading is cached per file (path, mtime, size, settings) so cursor moves are cheap.
 
 use crate::settings::Settings;

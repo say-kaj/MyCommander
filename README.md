@@ -26,7 +26,7 @@ brew tap say-kaj/tap
 brew install --cask mycommander
 ```
 
-Update later with `brew upgrade --cask mycommander`; `brew outdated --cask` shows what is outdated.
+The app tells you about new releases: a **⬆ Update to X.Y.Z** button appears at the right of the toolbar and installs the update inline (switch off in Settings ▸ General). Alternatively `brew update && brew upgrade --cask mycommander`; `brew outdated --cask` shows what is outdated.
 Remove with `brew uninstall --cask mycommander` (add `--zap` to delete settings too).
 
 Without Homebrew: download `myCommander-<version>-macos-arm64.zip` from the

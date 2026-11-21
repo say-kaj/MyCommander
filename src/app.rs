@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
-    Unavailable,
     Tree(usize),
     Panelize(usize),
     ViewFile,
@@ -30,11 +29,6 @@ pub enum Action {
     FileHistory,
     BackgroundJobs,
     EditMenuFile,
-    Layout,
-    PanelOptions,
-    Confirmation,
-    Appearance,
-    QuickViewOptions,
     Encoding,
     Remote(usize, crate::vfs::Scheme),
     LocalFolder(usize),
@@ -134,12 +128,22 @@ pub enum InputKind {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum OptPage {
-    Configuration,
-    Layout,
-    PanelOptions,
-    Confirmation,
+    General,
+    Panels,
     Appearance,
     QuickView,
+}
+
+impl OptPage {
+    pub const ALL: [OptPage; 4] = [OptPage::General, OptPage::Panels, OptPage::Appearance, OptPage::QuickView];
+    pub fn label(self) -> &'static str {
+        match self {
+            OptPage::General => "General",
+            OptPage::Panels => "Panels",
+            OptPage::Appearance => "Appearance",
+            OptPage::QuickView => "Quick View",
+        }
+    }
 }
 
 pub enum JobKind {
@@ -180,6 +184,7 @@ pub struct App {
     pub status: Option<(String, f64)>,
     pub char_w: f32,
     pub quit_asked: bool,
+    pub update_started: bool,
     pub pal: crate::theme::Pal,
     pub native_menu: Option<crate::native_menu::NativeMenu>,
     pub search_text: String,
@@ -247,6 +252,7 @@ impl App {
             char_w: 8.0,
             preview: Default::default(),
             quit_asked: false,
+            update_started: false,
             pal,
             native_menu,
             search_text: String::new(),
@@ -779,9 +785,6 @@ impl App {
                     self.run_command(ctx, cmd);
                 }
             }
-            Action::Layout => self.dialog = Some(Dialog::Options { page: OptPage::Layout, s: Box::new(self.settings.clone()) }),
-            Action::PanelOptions => self.dialog = Some(Dialog::Options { page: OptPage::PanelOptions, s: Box::new(self.settings.clone()) }),
-            Action::Confirmation => self.dialog = Some(Dialog::Options { page: OptPage::Confirmation, s: Box::new(self.settings.clone()) }),
             Action::LocalFolder(p) => {
                 let back = self.panels[p].last_local.clone();
                 let back = if back.is_dir() { back } else { fsutil::home_dir() };
@@ -794,15 +797,6 @@ impl App {
                 self.dialog = Some(Dialog::Remote { panel: p, scheme, value: String::new(), hosts });
             }
             Action::Encoding => self.dialog = Some(Dialog::Encoding { choice: self.settings.text_encoding }),
-            Action::QuickViewOptions => self.dialog = Some(Dialog::Options { page: OptPage::QuickView, s: Box::new(self.settings.clone()) }),
-            Action::Appearance => self.dialog = Some(Dialog::Options { page: OptPage::Appearance, s: Box::new(self.settings.clone()) }),
-            Action::Unavailable => {
-                self.dialog = Some(Dialog::Message {
-                    title: "Not available".into(),
-                    text: "This Midnight Commander feature (virtual file systems and terminal settings) is not part of myCommander yet.".into(),
-                    error: false,
-                })
-            }
 
             Action::CompareDirs => self.compare_dirs(ctx),
             Action::ShowOutput => self.screen = Screen::Output,
@@ -816,7 +810,7 @@ impl App {
             Action::Config => {
                 let mut st = self.settings.clone();
                 st.show_hidden = self.panels[0].show_hidden;
-                self.dialog = Some(Dialog::Options { page: OptPage::Configuration, s: Box::new(st) })
+                self.dialog = Some(Dialog::Options { page: OptPage::General, s: Box::new(st) })
             }
             Action::SaveSetup => match self.save_setup() {
                 Ok(()) => self.flash(ctx, "Setup saved"),
@@ -1067,7 +1061,7 @@ impl App {
             self.do_action(ctx, Action::FilteredView);
             return;
         }
-        // Lynx-like motion (Options > Panel options): Left = parent folder, Right = open folder.
+        // Lynx-like motion (Settings > Panels): Left = parent folder, Right = open folder.
         if self.settings.lynx_motion && self.cmdline.is_empty() && self.act().listing != Listing::Brief {
             if take(ctx, Key::ArrowLeft, NONE) {
                 if let Err(e) = self.act().go_parent() {
@@ -1222,6 +1216,30 @@ impl eframe::App for App {
 
         if self.draw_viewer(ctx) || self.draw_editor(ctx) || self.draw_output(ctx) {
             return;
+        }
+
+        if !self.update_started && self.screenshot.is_none() {
+            self.update_started = true;
+            if self.settings.check_updates {
+                crate::update::check_async();
+            }
+        }
+        if crate::update::busy() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(300));
+        }
+        if crate::update::state() == crate::update::State::Restart && !self.quit_asked {
+            self.quit_asked = true;
+            if self.settings.auto_save {
+                let _ = self.save_setup();
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        let mut sizes_pending = false;
+        for i in 0..2 {
+            sizes_pending |= self.panels[i].sync_dir_sizes(i, self.settings.dir_sizes);
+        }
+        if sizes_pending {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
 
         let job_busy = self.job.is_some();

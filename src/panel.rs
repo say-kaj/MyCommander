@@ -116,6 +116,8 @@ pub struct Panel {
     pub tree_scroll: usize,
     /// The last local folder shown here: where "back to local" (".." at a server root) leads.
     pub last_local: PathBuf,
+    /// `dirsize::version()` the entries were last synced with.
+    pub sizes_ver: u64,
 }
 
 impl Panel {
@@ -139,6 +141,7 @@ impl Panel {
             tree_open: std::collections::HashSet::new(),
             tree_scroll: 0,
             last_local: if crate::vfs::is_remote(&dir) { fsutil::home_dir() } else { dir.clone() },
+            sizes_ver: 0,
         };
         p.reload_keep(None);
         p
@@ -151,15 +154,59 @@ impl Panel {
     /// Re-read the folder, keeping marks and the cursor on the same name if possible.
     pub fn reload(&mut self) {
         crate::vfs::invalidate(&self.dir);
+        crate::dirsize::invalidate();
         let name = self.current().map(|e| e.name.clone());
         self.reload_keep(name);
+    }
+
+    /// Fill folder sizes from the background calculation (PNL-14); `idx` identifies the panel.
+    /// Returns true while results are still outstanding.
+    pub fn sync_dir_sizes(&mut self, idx: usize, enabled: bool) -> bool {
+        let local = !crate::vfs::is_remote(&self.dir) && self.panelized.is_none();
+        if !enabled || !local {
+            self.sizes_ver = 0;
+            if self.entries.iter().any(|e| e.dir_size_auto) {
+                for e in self.entries.iter_mut().filter(|e| e.dir_size_auto) {
+                    e.dir_size = None;
+                    e.dir_size_auto = false;
+                }
+            }
+            return false;
+        }
+        let v = crate::dirsize::version();
+        if v == self.sizes_ver {
+            return false;
+        }
+        let want: Vec<(usize, (PathBuf, i64))> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.kind == fsutil::Kind::Dir && !e.is_updir() && (e.dir_size.is_none() || e.dir_size_auto))
+            .map(|(i, e)| (i, (e.path.clone(), e.mtime)))
+            .collect();
+        let keys: Vec<(PathBuf, i64)> = want.iter().map(|(_, k)| k.clone()).collect();
+        let res = crate::dirsize::lookup(idx, &keys);
+        let mut changed = false;
+        for ((i, _), r) in want.iter().zip(res) {
+            if let Some(s) = r {
+                let e = &mut self.entries[*i];
+                changed |= e.dir_size != Some(s);
+                e.dir_size = Some(s);
+                e.dir_size_auto = true;
+            }
+        }
+        self.sizes_ver = v;
+        if changed && self.sort.mode == SortMode::Size {
+            self.resort();
+        }
+        crate::dirsize::busy()
     }
 
     pub fn reload_keep(&mut self, select: Option<String>) {
         let marked: std::collections::HashSet<String> =
             self.entries.iter().filter(|e| e.marked).map(|e| e.name.clone()).collect();
         let sizes: std::collections::HashMap<String, u64> =
-            self.entries.iter().filter_map(|e| e.dir_size.map(|s| (e.name.clone(), s))).collect();
+            self.entries.iter().filter(|e| !e.dir_size_auto).filter_map(|e| e.dir_size.map(|s| (e.name.clone(), s))).collect();
         let old_cursor = self.cursor;
         let listed = match &self.panelized {
             Some(paths) => {
@@ -185,6 +232,7 @@ impl Panel {
                     e.dir_size = sizes.get(&e.name).copied();
                 }
                 self.entries = list;
+                self.sizes_ver = 0;
             }
             Err(err) => {
                 self.error = Some(format!("Cannot read directory contents: {}", err));

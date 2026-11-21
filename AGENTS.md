@@ -24,7 +24,7 @@ Single menu table: `menus.rs` (feeds both the in-window and the macOS menu bar).
 ## Rules
 
 1. Behaviour in SPEC §4–§7 is normative. Change the spec first, then the code.
-2. New menu item → add to `menus.rs`; if unimplemented, register it as disabled.
+2. New menu item → add to `menus.rs`; don't list features that don't exist (no disabled placeholders).
 3. New settings field → must have a serde default (CFG-5).
 4. Long-running file work goes into `ops.rs` as a background job; never block the UI thread.
 5. Never run destructive operations on real user paths in tests; use temp dirs.

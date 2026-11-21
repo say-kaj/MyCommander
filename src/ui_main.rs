@@ -114,6 +114,26 @@ impl App {
                     ui.spacing_mut().item_spacing.x = 6.0;
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(12.0);
+                        use crate::update::State as U;
+                        match crate::update::state() {
+                            U::Available { version, url } => {
+                                if tool_button(ui, &pal, &format!("⬆ Update to {version}"), true, "Download the new version, replace this app and restart").clicked() {
+                                    crate::update::install_async(version, url);
+                                }
+                            }
+                            U::Installing(msg) => {
+                                tool_button(ui, &pal, &format!("⬆ {msg}"), false, "Updating…");
+                            }
+                            U::Restart => {
+                                tool_button(ui, &pal, "⬆ Restarting…", false, "");
+                            }
+                            U::Failed(e) => {
+                                if tool_button(ui, &pal, "⚠ Update failed – retry", false, &e).clicked() {
+                                    crate::update::check_async();
+                                }
+                            }
+                            _ => {}
+                        }
                         let hidden = self.panels[0].show_hidden;
                         if tool_button(ui, &pal, if hidden { "Hide Hidden" } else { "Show Hidden" }, hidden, "Show or hide hidden files (⇧⌘.)").clicked() {
                             action = Some(Action::ToggleHidden);
@@ -524,6 +544,7 @@ impl App {
                 ctime: 0,
                 marked: false,
                 dir_size: None,
+                dir_size_auto: false,
             };
             let icon = Rect::from_min_size(Pos2::new(x + 16.0, y + 3.0), Vec2::splat(row_h - 6.0));
             draw_file_icon(&painter, icon, &fake, &pal);

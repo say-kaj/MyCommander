@@ -47,8 +47,7 @@ describes *behaviour*. Binary addresses are given as provenance only.
    commands run as background jobs and report through a shared progress object.
 4. **Safe by default.** Destructive actions confirm (configurable); `..` can
    never be operated on.
-5. **Honest UI.** Features that need unsupported mc subsystems are shown in
-   the menus but **disabled**, never silently missing or faked.
+5. **Honest UI.** The menus list only what works; nothing is shown disabled or faked.
 
 ---
 
@@ -65,11 +64,11 @@ describes *behaviour*. Binary addresses are given as provenance only.
   come from the same table as the in-window menu (`menus.rs`) so both always match.
 - **LAY-3** Default window 1280×800, minimum 760×440.
 - **LAY-4** The active panel shows the selection bar; the inactive one a dimmed one.
-- **LAY-5** Layout options (Options ▸ Layout): vertical/horizontal split, show
+- **LAY-5** Layout options (Settings ▸ Panels / Appearance): vertical/horizontal split, show
   menu bar, command line, key bar, toolbar. Persisted.
 - **LAY-6** Function-key bar: `1 Help 2 Menu 3 View 4 Edit 5 Copy 6 Move 7 New Folder 8 Delete 9 Commands 10 Quit`.
   (mc's terse labels `RenMov`, `Mkdir`, `PullDn` are intentionally spelled out.)
-- **LAY-7** Appearance: light, dark or follow-system (Options ▸ Appearance);
+- **LAY-7** Appearance: light, dark or follow-system (Settings ▸ Appearance);
   font size adjustable.
 
 ## 4. Panels (PNL)
@@ -92,7 +91,7 @@ describes *behaviour*. Binary addresses are given as provenance only.
   (`.zshrc`, `.bashrc`, `Makefile`, `Dockerfile`, `Cargo.lock` …) → shebang / first line. Unknown types fall back to plain text.
 - **PNL-1c** Quick view reads at most *N* KB (default 512) and 20 000 lines; truncation is indicated.
   Loaded content is cached per (path, mtime, size, settings) so cursor movement stays cheap.
-- **PNL-1d** Quick view is configurable in **Options ▸ Quick view…** (see CFG-2): images on/off, Markdown rendering
+- **PNL-1d** Quick view is configurable in **Settings ▸ Quick View** (see CFG-2): images on/off, Markdown rendering
   on/off, highlighting on/off, line numbers, light and dark highlighting theme, language overrides, read limit.
 - **PNL-2** A panel may also show **panelized** results (Find file results, External panelize).
 - **PNL-3** Each panel keeps: folder, entries, cursor, marks, sort order, filter,
@@ -134,6 +133,17 @@ describes *behaviour*. Binary addresses are given as provenance only.
   otherwise divided by 1024 (rounded: `(x+512)>>10`) and suffixed `K M G T P`
   until it fits.
 
+- **PNL-12a** Folder sizes (setting `dir_sizes`, Settings ▸ Panels, default **on**): sizes of
+  the sub-folders in a local listing are calculated in the background and appear in the Size
+  column as they arrive; the UI never waits. Total logical size of all files below the folder,
+  symlinks not followed, other volumes and cloud-provider folders (`~/Library/CloudStorage`, `~/Library/Mobile Documents`) skipped when below the measured folder. Implementation: two low-count worker threads
+  using `getattrlistbulk(2)` (one syscall per few hundred entries). Folders of the listing
+  are measured top to bottom, newer listings first, work for folders no panel shows any more
+  is dropped. Results are cached for 60 s and while the folder's mtime is unchanged; stale
+  values stay visible while they are recalculated (explicit refresh invalidates everything).
+  Sorting by size re-sorts as values arrive. Does not apply to servers or panelized lists.
+  A manual Ctrl-Space size is kept when the setting is off.
+
 ### 4.5 Date column
 - **PNL-14** Recent format `%b %e %H:%M`; old format `%b %e  %Y` (two spaces).
 - **PNL-15** A file is "old" if its mtime is more than **15 552 000 s (180 days)** in
@@ -171,7 +181,7 @@ All run as background jobs (`ops.rs`) and show a progress window.
 - **OPS-3** Move uses rename; across volumes it falls back to copy + delete.
 - **OPS-4** Copy preserves permissions and modification time (mc "preserve attributes" default on).
 - **OPS-5** Overwrite question: `Overwrite this file?` with **Yes / No / All / None / Skip**
-  (and `Overwrite all files?`). Configurable via Confirmation options.
+  (and `Overwrite all files?`). Configurable in Settings ▸ General.
 - **OPS-6** Operating on `..` is refused with `Cannot operate on ".."!`.
 - **OPS-7** Mkdir (F7): dialog *Create a new Directory* / *Enter directory name:*.
 - **OPS-8** Delete (F8) confirms; directories are removed recursively after confirmation.
@@ -225,12 +235,12 @@ Implemented in `vfs.rs`. **Nothing myCommander-specific is configured**: it reus
   defeated by backslash-escaping in `qg()`.
 - **VFS-9** Remote I/O is synchronous subprocess calls: connecting and listing block the UI for the duration (timeout 15 s).
   Copy/Move/Delete and Quick view run in background threads.
-- **VFS-10** Not part of 1.x (and not in the menus): Shell link (ssh without sftp), Active VFS list, Virtual FS, password / keyboard-interactive login, FTPS, resume,
+- **VFS-10** Not part of 1.x: ssh without sftp (shell link), password / keyboard-interactive login, FTPS, resume,
   byte-level progress for remote transfers (progress is per file).
 
 ## 5b. Text encoding (ENC)
 
-- **ENC-1** *Left/Right ▸ Encoding…* (also a combo in Options ▸ Quick view) sets one global text encoding for the viewer (F3),
+- **ENC-1** *Left/Right ▸ Encoding…* (also a combo in Settings ▸ Quick View) sets one global text encoding for the viewer (F3),
   the editor (F4) and Quick view. Setting `text_encoding`, persisted.
 - **ENC-2** Choices: **Automatic** (default), UTF-8, Windows-1252 / ISO-8859-1, ISO-8859-15, Mac Roman, Windows-1250,
   Windows-1251, KOI8-R, UTF-16 LE, UTF-16 BE (`textenc.rs`, `encoding_rs`).
@@ -244,8 +254,6 @@ Implemented in `vfs.rs`. **Nothing myCommander-specific is configured**: it reus
 ## 6. Menu structure (MNU)
 
 Identical in the in-window menu bar, the macOS menu bar and the F9 pull-downs.
-Items marked `*` are shown **disabled** (they need terminal-only mc features).
-mc's VFS-only items (*Shell link*, *Active VFS list*, *Virtual FS*) are **removed**, not disabled; SFTP and FTP links are real (§5a).
 
 - **Left / Right:** File listing, Quick view, Info, Tree, Listing format…, Sort order…,
   Filter…, Encoding…, FTP link…, SFTP link…, Local folder, Panelize, Rescan.
@@ -255,10 +263,8 @@ mc's VFS-only items (*Shell link*, *Active VFS list*, *Virtual FS*) are **remove
 - **Command:** User menu, Directory tree, Find file, Swap panels, Switch panels on/off,
   Compare directories, Compare files, External panelize, Show directory sizes,
   Command history, Viewed/edited files history, Directory hotlist,
-  Background jobs, Screen list*, Edit extension file*, Edit menu file,
-  Edit highlighting group file*.
-- **Options:** Configuration, Layout, Panel options, Confirmation, Appearance, Quick view (native addition),
-  Display bits*, Learn keys*, Save setup.
+  Background jobs, Edit menu file.
+- **Options:** Settings… (⌘,), Save setup. **MNU-0** Settings is one window with the tabs *General* (startup, updates, confirmations), *Panels* (listing, folder sizes, arrangement, keyboard), *Appearance* (theme, text size, window elements) and *Quick View*. Changes apply immediately; *Done* (or Esc/Return) closes it. There are no OK/Cancel buttons and no duplicated options.
 - **MNU-1** The user menu (F2) reads `menu.txt` from the config directory; entries
   support the substitutions `%f` (current file), `%d` (current dir), `%F` / `%D`
   (same for the other panel).
@@ -293,7 +299,7 @@ Taken from mc's `mc.default.keymap` (`[filemanager]`, `[panel]`), plus Mac alias
 | Alt-Y / Alt-U | directory history back / forward |
 | Alt-C | quick cd |
 | Ctrl-X i / Ctrl-X q | info panel / quick view |
-| Cmd-, | Configuration |
+| Cmd-, | Settings |
 | Cmd-Q | quit |
 | Cmd-Backspace | delete |
 | Cmd-Shift-N | new folder |
@@ -335,8 +341,7 @@ Taken from mc's `mc.default.keymap` (`[filemanager]`, `[panel]`), plus Mac alias
 | U-1 | Exact pixel/column layout of mc's running terminal UI | Unverified. The person declined running mc in a recorded terminal; layout follows format strings in the binary (size width 7, date 12 chars). Low severity – the app deliberately uses a Mac look. |
 | U-2 | Runtime behaviour vs. mechanics values | The mechanics sheet is readable and sourced (30 of 32 values with a binary/config source) but no automated comparison against a running mc exists. |
 | U-3 | Estimated (not sourced) values | "Copy preserves attributes" and "right click marks". |
-| L-1 | No archives and no shell link | *Shell link…* is disabled. SFTP/FTP: see §5a. |
-| L-2 | No display-bits, learn-keys | Menu items disabled. |
+| L-1 | No archives and no shell link | SFTP/FTP: see §5a. |
 | L-3 | Delete is permanent | Trash integration is a post-1.0 candidate. |
 | L-5 | Quick view: PDF shows only the first page; HEIC/PDF depend on macOS `sips`; images inside Markdown are not loaded; highlighting uses syntect's built-in themes and syntax set (two-face extras) | Post-1.0 candidates. |
 | L-4 | Tests | Only `ops.rs` has unit tests; panel rules lack automated tests. |
@@ -354,6 +359,8 @@ src/
   textenc.rs      Text encodings (decode / encode / sniff) for viewer, editor, quick view
   vfs.rs          Remote locations: sftp (system sftp) and ftp (system curl), path helpers, ssh host list, download cache
   fsutil.rs       Directory reading, size/date/permission formatting, highlight classes
+  update.rs       In-app update check and installer (UPD)
+  dirsize.rs      Background folder sizes (getattrlistbulk worker pool, cache; PNL-12a)
   ops.rs          Background jobs (copy, move, delete, dirsize, find, shell) + Progress
   dialogs.rs      Standard dialogs + progress / overwrite window
   dialogs2.rs     Link, chown, filtered view, quick cd, panelize, history, Options pages
@@ -369,9 +376,9 @@ src/
   with no egui dependency so it can be unit-tested.
 - **ARC-2** Anything that touches the file system for longer than a frame goes into `ops.rs`.
 - **ARC-3** A new menu item is added in `menus.rs` once; both menu bars pick it up.
-  Unimplemented items MUST be registered as disabled, not omitted.
+  Items for features the app does not have are not listed.
 - **ARC-4** Test aids: `myCommander --screenshot out.png` renders one frame headless-ish and exits;
-  env `MYCMD_SHOT_MENU=<0..4>` opens menu *n* for the picture; env `MYCMD_SHOT_QV=<file>` shows that file
+  env `MYCMD_SHOT_MENU=<0..4>` opens menu *n* for the picture; env `MYCMD_SHOT_OPT=<0..3>` opens that Settings tab; env `MYCMD_SHOT_QV=<file>` shows that file
   in the right panel's Quick view; env `MYCMD_SFTP_SERVER=/usr/libexec/sftp-server` makes `sftp://` talk to a local
   sftp-server (no network, no keys) – used by the tests; env `MYCMD_FTP_TEST=host:port` enables the FTP round-trip test; env `MYCMD_SSH_TEST=host:port` + `MYCMD_SSH_OPTS="-o …"` enable the
   real-ssh test (one connection for many listings); env `MYCMD_VFS_DEBUG=1` logs every remote call with its duration to stderr.
@@ -389,3 +396,16 @@ cross-platform support (Linux/Windows) behind the existing platform guards.
 3. Keep `cargo build --release` warning-free and `cargo test` green.
 4. Do not add dependencies without a reason noted in the PR.
 5. Never run destructive file operations against real user directories in tests – use temp dirs.
+
+## 13. Updates (UPD)
+- **UPD-1** At startup (setting `check_updates`, Settings ▸ General, default on) the app asks
+  `api.github.com/repos/say-kaj/MyCommander/releases/latest` once, in the background, using the
+  system `curl`. No data about the user or machine is sent. Offline or errors are silent.
+- **UPD-2** If the release tag is newer than the running version, the toolbar shows
+  **⬆ Update to X.Y.Z** at its right edge.
+- **UPD-3** Clicking it downloads the `*macos-arm64.zip` asset, unpacks it, verifies `codesign` and the
+  version, stages the new bundle next to the running one, quits, swaps the bundle and reopens it.
+  Requires a writable parent folder (e.g. /Applications); otherwise the button shows "Update failed".
+  Not available when run outside an .app bundle.
+- **UPD-4** Homebrew keeps working: `brew upgrade --cask mycommander` simply installs the same release.
+- Test aids: `MYCMD_UPDATE_TEST="<ver>|<zip url>"` fakes a release, `MYCMD_UPDATE_AUTO=1` installs it at once.

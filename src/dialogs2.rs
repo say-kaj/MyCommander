@@ -1,7 +1,7 @@
 //! The dialogs behind mc's remaining menu items: Link / Symlink / Relative
 //! symlink, Edit symlink, Chown and Advanced chown, View file, Filtered view,
 //! Quick cd, External panelize, Command / file history, and the Options pages
-//! (Configuration, Layout, Panel options, Confirmation, Appearance).
+//! (one Settings window).
 
 use crate::app::{Action, App, Dialog, InputKind, Job, JobKind, LinkKind, OptPage};
 use crate::fsutil;
@@ -345,24 +345,50 @@ impl App {
                 }
             }
             Dialog::Options { page, mut s } => {
-                let title = match page {
-                    OptPage::Configuration => "Configuration",
-                    OptPage::Layout => "Layout",
-                    OptPage::PanelOptions => "Panel options",
-                    OptPage::Confirmation => "Confirmation",
-                    OptPage::Appearance => "Appearance",
-                    OptPage::QuickView => "Quick view",
-                };
-                let (ok, cancel) = self
-                    .dialog_window(ctx, title, false, |ui| {
-                        options_page(ui, page, &mut s);
+                // One Settings window; changes apply immediately (macOS preferences style).
+                let before = serde_json::to_string(&*s).unwrap_or_default();
+                let mut page = page;
+                let done = self
+                    .dialog_window(ctx, "Settings", false, |ui| {
+                        let line = self.pal.control_border;
+                        ui.horizontal_top(|ui| {
+                            ui.vertical(|ui| {
+                                ui.set_width(124.0);
+                                ui.set_height(380.0);
+                                for p in OptPage::ALL {
+                                    let r = ui.add_sized([124.0, 28.0], egui::SelectableLabel::new(page == p, p.label()));
+                                    if r.clicked() {
+                                        page = p;
+                                    }
+                                }
+                            });
+                            ui.add_space(6.0);
+                            let (sep, _) = ui.allocate_exact_size(egui::Vec2::new(1.0, 380.0), egui::Sense::hover());
+                            ui.painter().rect_filled(sep, 0.0, line);
+                            ui.add_space(10.0);
+                            ui.vertical(|ui| {
+                                ui.set_width(430.0);
+                                egui::ScrollArea::vertical().max_height(380.0).min_scrolled_height(380.0).auto_shrink([false, false]).show(ui, |ui| {
+                                    ui.set_width(414.0);
+                                    ui.spacing_mut().item_spacing.y = 7.0;
+                                    options_page(ui, page, &mut s);
+                                });
+                            });
+                        });
                         ui.add_space(6.0);
-                        ok_cancel(ui)
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| primary_button(ui, &self.pal, "Done").clicked()).inner
                     })
-                    .unwrap_or((false, false));
-                if ok || enter {
-                    then = Some(Box::new(move |app, ctx| app.apply_settings(ctx, *s)));
-                } else if !(cancel || esc) {
+                    .unwrap_or(false);
+                let changed = serde_json::to_string(&*s).unwrap_or_default() != before;
+                if done || enter || esc {
+                    if changed {
+                        then = Some(Box::new(move |app, ctx| app.apply_settings(ctx, *s)));
+                    }
+                } else if changed {
+                    let applied = s.clone();
+                    then = Some(Box::new(move |app, ctx| app.apply_settings(ctx, *applied)));
+                    keep = Some(Dialog::Options { page, s });
+                } else {
                     keep = Some(Dialog::Options { page, s });
                 }
             }
@@ -463,6 +489,9 @@ impl App {
                 p.reload();
             }
         }
+        for p in self.panels.iter_mut() {
+            p.sizes_ver = 0;
+        }
         if mix_changed {
             for p in self.panels.iter_mut() {
                 p.sort.mix_all = self.settings.mix_all_files;
@@ -489,45 +518,68 @@ impl App {
     }
 }
 
+fn heading(ui: &mut egui::Ui, text: &str) {
+    ui.add_space(4.0);
+    ui.label(egui::RichText::new(text).strong().size(13.0));
+}
+
+fn hint(ui: &mut egui::Ui, text: &str) {
+    ui.label(egui::RichText::new(text).weak().size(11.5));
+}
+
 fn options_page(ui: &mut egui::Ui, page: OptPage, s: &mut Settings) {
     match page {
-        OptPage::Configuration => {
-            ui.checkbox(&mut s.show_hidden, "Show hidden files");
-            ui.checkbox(&mut s.auto_save, "Auto save setup");
-            ui.checkbox(&mut s.confirm_delete, "Confirm delete");
-            ui.checkbox(&mut s.confirm_overwrite, "Confirm overwrite");
+        OptPage::General => {
+            heading(ui, "Startup and updates");
+            ui.checkbox(&mut s.auto_save, "Remember folders and settings when quitting");
+            ui.checkbox(&mut s.check_updates, "Check for new versions at startup");
+            heading(ui, "Ask before");
+            ui.checkbox(&mut s.confirm_delete, "Deleting files");
+            ui.checkbox(&mut s.confirm_overwrite, "Overwriting files");
+            ui.checkbox(&mut s.confirm_execute, "Running programs");
+            ui.checkbox(&mut s.confirm_exit, "Quitting");
         }
-        OptPage::Layout => {
-            ui.label("Panel split:");
+        OptPage::Panels => {
+            heading(ui, "Listing");
+            ui.checkbox(&mut s.show_hidden, "Show hidden files");
+            ui.checkbox(&mut s.dir_sizes, "Calculate folder sizes in the background");
+            ui.checkbox(&mut s.mix_all_files, "Don't list folders first");
+            ui.checkbox(&mut s.show_mini_status, "Show info line below the list");
+            heading(ui, "Arrangement");
             ui.horizontal(|ui| {
-                ui.radio_value(&mut s.horizontal_split, false, "Vertical (side by side)");
-                ui.radio_value(&mut s.horizontal_split, true, "Horizontal (one above the other)");
+                ui.radio_value(&mut s.horizontal_split, false, "Side by side");
+                ui.radio_value(&mut s.horizontal_split, true, "One above the other");
             });
-            ui.add_space(4.0);
-            ui.checkbox(&mut s.show_menubar, "Menu bar visible");
-            ui.checkbox(&mut s.show_toolbar, "Toolbar visible");
-            ui.checkbox(&mut s.show_cmdline, "Command prompt");
-            ui.checkbox(&mut s.show_keybar, "Key bar visible");
+            heading(ui, "Keyboard");
+            ui.checkbox(&mut s.lynx_motion, "Left goes up, Right opens (Lynx-style)");
         }
-        OptPage::PanelOptions => {
-            ui.checkbox(&mut s.show_mini_status, "Show mini-status");
-            ui.checkbox(&mut s.mix_all_files, "Mix all files (folders not first)");
-            ui.checkbox(&mut s.show_hidden, "Show hidden files");
-            ui.checkbox(&mut s.lynx_motion, "Lynx-like motion (Left = parent, Right = open)");
-        }
-        OptPage::Confirmation => {
-            ui.checkbox(&mut s.confirm_delete, "Delete");
-            ui.checkbox(&mut s.confirm_overwrite, "Overwrite");
-            ui.checkbox(&mut s.confirm_execute, "Execute");
-            ui.checkbox(&mut s.confirm_exit, "Exit");
+        OptPage::Appearance => {
+            heading(ui, "Theme");
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut s.theme, ThemeChoice::System, "Follow macOS");
+                ui.radio_value(&mut s.theme, ThemeChoice::Light, "Light");
+                ui.radio_value(&mut s.theme, ThemeChoice::Dark, "Dark");
+            });
+            ui.horizontal(|ui| {
+                ui.label("Text size");
+                ui.add(egui::Slider::new(&mut s.font_size, 11.0..=20.0).step_by(0.5));
+            });
+            heading(ui, "Window elements");
+            ui.checkbox(&mut s.show_menubar, "Menu bar");
+            ui.checkbox(&mut s.show_toolbar, "Toolbar");
+            ui.checkbox(&mut s.show_cmdline, "Command line");
+            ui.checkbox(&mut s.show_keybar, "Function key bar (F1–F10)");
         }
         OptPage::QuickView => {
-            ui.checkbox(&mut s.qv_images, "Show images as images (png, jpg, gif, webp, bmp, tiff, ico, svg, heic, pdf page 1)");
-            ui.checkbox(&mut s.qv_markdown, "Render Markdown");
-            ui.checkbox(&mut s.qv_highlight, "Syntax highlighting (source, HTML, shell, config files …)");
+            heading(ui, "Show");
+            ui.checkbox(&mut s.qv_images, "Images as images");
+            hint(ui, "png, jpg, gif, webp, bmp, tiff, ico, svg, heic, first page of pdf");
+            ui.checkbox(&mut s.qv_markdown, "Rendered Markdown");
+            ui.checkbox(&mut s.qv_highlight, "Syntax highlighting");
+            hint(ui, "source code, HTML, shell, config files …");
             ui.add_enabled_ui(s.qv_highlight, |ui| {
                 ui.checkbox(&mut s.qv_line_numbers, "Line numbers");
-                for (label, field) in [("Light theme:", &mut s.qv_theme_light), ("Dark theme:", &mut s.qv_theme_dark)] {
+                for (label, field) in [("Light theme", &mut s.qv_theme_light), ("Dark theme", &mut s.qv_theme_dark)] {
                     ui.horizontal(|ui| {
                         ui.label(label);
                         egui::ComboBox::from_id_salt(label).selected_text(field.clone()).show_ui(ui, |ui| {
@@ -537,29 +589,18 @@ fn options_page(ui: &mut egui::Ui, page: OptPage, s: &mut Settings) {
                         });
                     });
                 }
-                ui.label("Language overrides, one `extension=Syntax name` per line (e.g. `conf=INI`):");
+                ui.label("Language overrides");
+                hint(ui, "One `extension=Syntax name` per line, e.g. `conf=INI`");
                 ui.add(egui::TextEdit::multiline(&mut s.qv_syntax_map).desired_rows(3).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace));
             });
+            heading(ui, "Text");
             ui.horizontal(|ui| {
-                ui.label("Text encoding:");
+                ui.label("Encoding");
                 encoding_combo(ui, "qv_enc", &mut s.text_encoding);
             });
             ui.horizontal(|ui| {
-                ui.label("Read at most (KB):");
-                ui.add(egui::DragValue::new(&mut s.qv_max_kb).range(16..=8192).speed(16));
-            });
-        }
-        OptPage::Appearance => {
-            ui.label("Appearance:");
-            ui.horizontal(|ui| {
-                ui.radio_value(&mut s.theme, ThemeChoice::System, "Follow macOS");
-                ui.radio_value(&mut s.theme, ThemeChoice::Light, "Light");
-                ui.radio_value(&mut s.theme, ThemeChoice::Dark, "Dark");
-            });
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.label("Text size:");
-                ui.add(egui::Slider::new(&mut s.font_size, 11.0..=20.0).step_by(0.5));
+                ui.label("Read at most");
+                ui.add(egui::DragValue::new(&mut s.qv_max_kb).range(16..=8192).speed(16).suffix(" KB"));
             });
         }
     }

@@ -38,6 +38,8 @@ pub struct Entry {
     pub marked: bool,
     /// Size computed with Ctrl-Space for directories.
     pub dir_size: Option<u64>,
+    /// `dir_size` came from the background calculation (PNL-14), not from Ctrl-Space.
+    pub dir_size_auto: bool,
 }
 
 impl Entry {
@@ -101,6 +103,7 @@ fn entry_from_meta(name: String, path: PathBuf, md: Option<&fs::Metadata>, kind:
         ctime: md.map(|m| m.ctime()).unwrap_or(0),
         marked: false,
         dir_size: None,
+        dir_size_auto: false,
     }
 }
 

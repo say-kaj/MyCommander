@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+- One **Settings** window (⌘,) with tabs General, Panels, Appearance and Quick View replaces the six separate Options dialogs; changes apply immediately, duplicated options are gone.
+- Removed the unusable menu items *Display bits*, *Learn keys*, *Screen list*, *Edit extension file* and *Edit highlighting group file* (terminal-only).
+- In-app updates: a **⬆ Update to X.Y.Z** button appears in the toolbar when a newer release exists and installs it inline (SPEC §13); can be switched off in Settings ▸ General.
+- Folder sizes are calculated in the background (`getattrlistbulk`, cached, revalidated) and shown in the Size column; configurable in Settings ▸ Panels, default on (SPEC PNL-12a).
+
 ## 1.1.1
 - Way back from a server: `..` at a server root, a "Local" crumb in the path bar and Left/Right ▸ Local folder lead back to the local file system.
 - Fix: SFTP was very slow because every operation opened a new ssh connection. One multiplexed connection per host is now reused; listings are cached for 5 s and Quick view of remote files is debounced.

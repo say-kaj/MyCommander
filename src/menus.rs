@@ -1,8 +1,7 @@
 //! Midnight Commander's pull-down menu structure, item for item, in mc's order
 //! (strings at 0x1000a12a0.., built in `_do_nc` 0x10001f4d0 and
 //! `_create_panel_menu` 0x100021250). Used by the in-window menu bar (F9) and by
-//! the macOS menu bar. Items that need mc's virtual file systems or terminal
-//! features are shown but disabled.
+//! the macOS menu bar. Only items that make sense in a native app are listed.
 
 use crate::app::Action;
 
@@ -16,9 +15,6 @@ pub struct MItem {
 
 fn it(label: &'static str, key: &'static str, action: Action) -> MItem {
     MItem { label, key, action: Some(action), enabled: true }
-}
-fn off(label: &'static str) -> MItem {
-    MItem { label, key: "", action: Some(Action::Unavailable), enabled: false }
 }
 fn sep() -> MItem {
     MItem { label: "", key: "", action: None, enabled: false }
@@ -88,21 +84,11 @@ pub fn items(idx: usize) -> Vec<MItem> {
             it("Viewed/edited files history", "⌥⇧E", Action::FileHistory),
             it("Directory hotlist", "⌃\\", Action::Hotlist),
             it("Background jobs", "⌃X J", Action::BackgroundJobs),
-            off("Screen list"),
             sep(),
-            off("Edit extension file"),
             it("Edit menu file", "", Action::EditMenuFile),
-            off("Edit highlighting group file"),
         ],
         _ => vec![
-            it("Configuration…", "", Action::Config),
-            it("Layout…", "", Action::Layout),
-            it("Panel options…", "", Action::PanelOptions),
-            it("Confirmation…", "", Action::Confirmation),
-            it("Appearance…", "", Action::Appearance),
-            it("Quick view…", "", Action::QuickViewOptions),
-            off("Display bits…"),
-            off("Learn keys…"),
+            it("Settings…", "⌘,", Action::Config),
             sep(),
             it("Save setup", "", Action::SaveSetup),
         ],
