@@ -183,6 +183,9 @@ All run as background jobs (`ops.rs`) and show a progress window.
 - **OPS-5** Overwrite question: `Overwrite this file?` with **Yes / No / All / None / Skip**
   (and `Overwrite all files?`). Configurable in Settings ▸ General.
 - **OPS-6** Operating on `..` is refused with `Cannot operate on ".."!`.
+- **OPS-6a** Speed of local copies: the pre-count of files and bytes uses the bulk enumeration of PNL-12a
+  (not one `stat` per file); a file is first tried as an instant APFS clone (`clonefile`, same volume, like Finder) and
+  only copied byte-wise when that is not possible; background folder-size workers are paused while a file operation runs.
 - **OPS-7** Mkdir (F7): dialog *Create a new Directory* / *Enter directory name:*.
 - **OPS-8** Delete (F8) confirms; directories are removed recursively after confirmation.
   Confirmation is configurable. Delete is permanent (no Trash) in 1.0.

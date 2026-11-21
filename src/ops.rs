@@ -180,6 +180,14 @@ impl Worker {
             return Ok(());
         }
         self.set_current(src, md.len());
+        // APFS: a copy-on-write clone is instant and takes no space (what Finder does).
+        if clone_file(src, dst) {
+            let mut g = self.p.lock().unwrap();
+            g.bytes_done += md.len();
+            g.file_bytes_done = md.len();
+            g.files_done += 1;
+            return Ok(());
+        }
         let mut inp = match fs::File::open(src) {
             Ok(f) => f,
             Err(e) => {
@@ -641,23 +649,32 @@ fn start_remote_op(kind: OpKind, sources: Vec<PathBuf>, dest: Option<PathBuf>, a
     p
 }
 
-/// (files, bytes) below a path, not following symlinks.
-pub fn count_tree(path: &Path) -> (u64, u64) {
-    let Ok(md) = fs::symlink_metadata(path) else { return (0, 0) };
-    if md.is_dir() {
-        let mut f = 0;
-        let mut b = 0;
-        if let Ok(rd) = fs::read_dir(path) {
-            for c in rd.flatten() {
-                let (cf, cb) = count_tree(&c.path());
-                f += cf;
-                b += cb;
-            }
+/// Clone `src` to `dst` (same APFS volume only; `dst` is replaced). False = not possible.
+#[cfg(target_os = "macos")]
+fn clone_file(src: &Path, dst: &Path) -> bool {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let (Ok(s), Ok(d)) = (CString::new(src.as_os_str().as_bytes()), CString::new(dst.as_os_str().as_bytes())) else { return false };
+    if fs::symlink_metadata(dst).is_ok() {
+        // clonefile refuses to overwrite; remove only after we know cloning can work.
+        let probe = dst.with_extension(format!("mycmd-clone-{}", std::process::id()));
+        let Ok(p) = CString::new(probe.as_os_str().as_bytes()) else { return false };
+        if unsafe { libc::clonefile(s.as_ptr(), p.as_ptr(), 0) } != 0 {
+            return false;
         }
-        (f, b)
-    } else {
-        (1, md.len())
+        return fs::rename(&probe, dst).is_ok();
     }
+    unsafe { libc::clonefile(s.as_ptr(), d.as_ptr(), 0) == 0 }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn clone_file(_: &Path, _: &Path) -> bool {
+    false
+}
+
+/// (files, bytes) below a path, not following symlinks (fast bulk enumeration).
+pub fn count_tree(path: &Path) -> (u64, u64) {
+    crate::dirsize::count(path)
 }
 
 /// Where a source ends up: inside `dest` when that is a folder (or several sources),
@@ -865,6 +882,35 @@ pub fn start_shell(cmd: String, cwd: PathBuf) -> Shared {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_copy_clones_and_overwrites() {
+        let d = std::env::temp_dir().join(format!("mycmd-copy-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(d.join("src/sub")).unwrap();
+        fs::create_dir_all(d.join("dst")).unwrap();
+        fs::write(d.join("src/a.txt"), b"hello").unwrap();
+        fs::write(d.join("src/sub/b.bin"), vec![7u8; 100_000]).unwrap();
+        fs::write(d.join("dst/src"), b"old").ok();
+        fs::remove_file(d.join("dst/src")).unwrap();
+        let p = start_file_op_with(OpKind::Copy, vec![d.join("src")], Some(d.join("dst")), false);
+        wait(&p);
+        {
+            let g = p.lock().unwrap();
+            assert!(g.errors.is_empty(), "{:?}", g.errors);
+            assert_eq!((g.files_total, g.bytes_total), (2, 100_005));
+            assert_eq!(g.bytes_done, 100_005);
+        }
+        assert_eq!(fs::read(d.join("dst/src/a.txt")).unwrap(), b"hello");
+        // copy again over the existing files (overwrite path, also via clone)
+        fs::write(d.join("src/a.txt"), b"HELLO2").unwrap();
+        let p = start_file_op_with(OpKind::Copy, vec![d.join("src")], Some(d.join("dst")), false);
+        wait(&p);
+        assert!(p.lock().unwrap().errors.is_empty());
+        assert_eq!(fs::read(d.join("dst/src/a.txt")).unwrap(), b"HELLO2");
+        assert_eq!(fs::read(d.join("dst/src/sub/b.bin")).unwrap().len(), 100_000);
+        let _ = fs::remove_dir_all(&d);
+    }
 
     fn wait(p: &Shared) {
         for _ in 0..500 {

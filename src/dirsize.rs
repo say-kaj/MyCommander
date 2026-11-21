@@ -32,6 +32,18 @@ struct State {
 
 static STATE: OnceLock<(Mutex<State>, Condvar)> = OnceLock::new();
 static VERSION: AtomicU64 = AtomicU64::new(1);
+static PAUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Hold the workers back while a file operation needs the disk.
+pub fn set_paused(p: bool) {
+    PAUSED.store(p, Ordering::Relaxed);
+}
+
+fn wait_unpaused() {
+    while PAUSED.load(Ordering::Relaxed) {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
 
 fn st() -> &'static (Mutex<State>, Condvar) {
     STATE.get_or_init(|| {
@@ -112,6 +124,7 @@ fn worker() {
             .ok()
             .map(|m| std::os::unix::fs::MetadataExt::mtime(&m))
             .unwrap_or(0);
+        wait_unpaused();
         let result = measure(&path, &|| st().0.lock().unwrap().wanted.values().any(|w| w.contains(&path)));
         let mut g = st().0.lock().unwrap();
         g.running.remove(&path);
@@ -126,30 +139,50 @@ fn worker() {
 /// Total logical size of everything below `root` (symlinks not followed, other volumes
 /// skipped). `None` when aborted because nobody wants the result any more.
 fn measure(root: &Path, wanted: &dyn Fn() -> bool) -> Option<u64> {
+    walk(root, wanted, true).map(|(_, b)| b)
+}
+
+/// (files, bytes) below `root` across every volume, nothing skipped: the pre-count of a
+/// copy / move / delete job, with the same fast bulk enumeration.
+pub fn count(root: &Path) -> (u64, u64) {
+    walk(root, &|| true, false).unwrap_or((0, 0))
+}
+
+fn walk(root: &Path, wanted: &dyn Fn() -> bool, sizing: bool) -> Option<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
-    let dev = std::fs::symlink_metadata(root).ok()?.dev() as u32;
-    let mut total = 0u64;
+    let md = std::fs::symlink_metadata(root).ok()?;
+    if !md.is_dir() {
+        return Some((1, if md.file_type().is_symlink() { 0 } else { md.len() }));
+    }
+    let dev = if sizing { Some(md.dev() as u32) } else { None };
+    let (mut files, mut total) = (0u64, 0u64);
     let mut stack = vec![root.to_path_buf()];
     let mut n = 0u32;
     while let Some(dir) = stack.pop() {
         n += 1;
-        if n % 16 == 0 && !wanted() {
-            return None;
+        if n % 16 == 0 {
+            if !wanted() {
+                return None;
+            }
+            if sizing {
+                wait_unpaused();
+            }
         }
         let before = stack.len();
-        scan(&dir, dev, &mut total, &mut stack);
-        // Cloud providers (OneDrive, iCloud, ...) would make network requests: skip them
-        // unless the folder asked for is one of them.
-        let mut i = before;
-        while i < stack.len() {
-            if is_cloud_mount(&stack[i]) && !is_cloud_mount(root) {
-                stack.swap_remove(i);
-            } else {
-                i += 1;
+        scan(&dir, dev, &mut files, &mut total, &mut stack);
+        if sizing && !is_cloud_mount(root) {
+            // Cloud providers (OneDrive, iCloud, ...) would make network requests.
+            let mut i = before;
+            while i < stack.len() {
+                if is_cloud_mount(&stack[i]) {
+                    stack.swap_remove(i);
+                } else {
+                    i += 1;
+                }
             }
         }
     }
-    Some(total)
+    Some((files, total))
 }
 
 fn is_cloud_mount(p: &Path) -> bool {
@@ -158,7 +191,7 @@ fn is_cloud_mount(p: &Path) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn scan(dir: &Path, dev: u32, total: &mut u64, subdirs: &mut Vec<PathBuf>) {
+fn scan(dir: &Path, dev: Option<u32>, files: &mut u64, total: &mut u64, subdirs: &mut Vec<PathBuf>) {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
     let Ok(c) = CString::new(dir.as_os_str().as_bytes()) else { return };
@@ -203,7 +236,7 @@ fn scan(dir: &Path, dev: u32, total: &mut u64, subdirs: &mut Vec<PathBuf>) {
                 name_ok = true;
                 p += 8;
             }
-            let mut edev = dev;
+            let mut edev = 0u32;
             if common_ret & libc::ATTR_CMN_DEVID != 0 {
                 edev = rd32(p);
                 p += 4;
@@ -215,7 +248,7 @@ fn scan(dir: &Path, dev: u32, total: &mut u64, subdirs: &mut Vec<PathBuf>) {
             }
             if ty == 2 {
                 // VDIR
-                if name_ok && edev == dev {
+                if name_ok && dev.map_or(true, |d| d == edev) {
                     let o = rd32(name_ref) as i32 as isize;
                     let nlen = rd32(name_ref + 4) as usize;
                     let start = (name_ref as isize + o) as usize;
@@ -224,9 +257,12 @@ fn scan(dir: &Path, dev: u32, total: &mut u64, subdirs: &mut Vec<PathBuf>) {
                         subdirs.push(dir.join(std::ffi::OsStr::from_bytes(nm)));
                     }
                 }
-            } else if ty == 1 && file_ret & libc::ATTR_FILE_DATALENGTH != 0 {
-                let sz = unsafe { std::ptr::read_unaligned(buf.as_ptr().add(p) as *const i64) };
-                *total += sz.max(0) as u64;
+            } else {
+                *files += 1;
+                if ty == 1 && file_ret & libc::ATTR_FILE_DATALENGTH != 0 {
+                    let sz = unsafe { std::ptr::read_unaligned(buf.as_ptr().add(p) as *const i64) };
+                    *total += sz.max(0) as u64;
+                }
             }
             off += len;
         }
@@ -235,17 +271,20 @@ fn scan(dir: &Path, dev: u32, total: &mut u64, subdirs: &mut Vec<PathBuf>) {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn scan(dir: &Path, dev: u32, total: &mut u64, subdirs: &mut Vec<PathBuf>) {
+fn scan(dir: &Path, dev: Option<u32>, files: &mut u64, total: &mut u64, subdirs: &mut Vec<PathBuf>) {
     use std::os::unix::fs::MetadataExt;
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {
         let Ok(md) = e.path().symlink_metadata() else { continue };
         if md.is_dir() {
-            if md.dev() as u32 == dev {
+            if dev.map_or(true, |d| md.dev() as u32 == d) {
                 subdirs.push(e.path());
             }
-        } else if md.is_file() {
-            *total += md.len();
+        } else {
+            *files += 1;
+            if md.is_file() {
+                *total += md.len();
+            }
         }
     }
 }
@@ -264,6 +303,7 @@ mod tests {
         std::fs::write(d.join("a/b/z"), vec![0u8; 345]).unwrap();
         std::os::unix::fs::symlink(&d, d.join("a/loop")).unwrap();
         assert_eq!(measure(&d, &|| true), Some(3345));
+        assert_eq!(count(&d), (4, 3345)); // x, y, z and the symlink
         // through the worker pool
         let mt = std::fs::metadata(&d).unwrap();
         let mtime = std::os::unix::fs::MetadataExt::mtime(&mt);

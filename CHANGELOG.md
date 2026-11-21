@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.3
+- Fix: after copy/move/delete the panels showed the new files only after the next mouse move or key press; they now refresh immediately.
+- Faster copy/move/delete: the file count before the job uses the fast bulk scan, files on the same APFS volume are cloned instantly (like Finder), and background folder sizes pause while a job runs (SPEC OPS-6a).
+
 ## 1.2.2
 - Fix: macOS forgot the folder access you had granted after every update. Releases are now signed with a stable identity (SPEC UPD-5). Grants have to be given once more after the first update to this version.
 - The update check repeats every 30 minutes, so the Update button also appears without restarting the app.

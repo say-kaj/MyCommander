@@ -1245,6 +1245,7 @@ impl eframe::App for App {
             }
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+        crate::dirsize::set_paused(matches!(self.job.as_ref().map(|j| &j.kind), Some(JobKind::FileOp(_))));
         let mut sizes_pending = false;
         for i in 0..2 {
             sizes_pending |= self.panels[i].sync_dir_sizes(i, self.settings.dir_sizes);

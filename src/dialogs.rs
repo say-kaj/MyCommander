@@ -569,6 +569,7 @@ impl App {
         }
         if let Some(f) = then {
             f(self, ctx);
+            ctx.request_repaint(); // panels were drawn earlier in this frame
         }
         // Keys a dialog used must not reach the panels.
         drop_keys(ctx, &[Key::Enter, Key::Escape, Key::F10]);
@@ -579,6 +580,8 @@ impl App {
         let shared = job.shared.clone();
         let finished = shared.lock().unwrap().finished;
         if finished {
+            // The panels were drawn before this point in the frame: draw again with the reloaded lists.
+            ctx.request_repaint();
             let job = self.job.take().unwrap();
             let (errors, size, out, code) = {
                 let g = shared.lock().unwrap();
