@@ -56,7 +56,7 @@ fn segment(p: &Painter, r: Rect, fill: Color32, radius: CornerRadius, label: &st
     if label.is_empty() {
         return;
     }
-    let (pos, anchor) = if start { (Pos2::new(r.left() + 12.0, r.center().y + 2.5), Align2::LEFT_CENTER) } else { (Pos2::new(r.right() - 10.0, r.center().y + 2.5), Align2::RIGHT_CENTER) };
+    let (pos, anchor) = if start { (Pos2::new(r.left() + 12.0, r.center().y - 0.5), Align2::LEFT_CENTER) } else { (Pos2::new(r.right() - 10.0, r.center().y - 0.5), Align2::RIGHT_CENTER) };
     p.text(pos, anchor, label.to_uppercase(), font(15.0), ink);
 }
 
@@ -129,8 +129,12 @@ impl App {
         let pal = self.pal;
         let t = pal.tones;
         let mut out = Head::default();
-        egui::TopBottomPanel::top("lc_head").exact_height(ELBOW_H).frame(egui::Frame::NONE.fill(pal.window)).show(ctx, |ui| {
+        egui::TopBottomPanel::top("lc_head").exact_height(ELBOW_H).frame(egui::Frame::NONE).show(ctx, |ui| {
             let r = ui.max_rect();
+            // Black everywhere except the corner outside the elbow's arc: that stays transparent, so the
+            // window silhouette follows the elbow (LCR-9).
+            ui.painter().rect_filled(Rect::from_min_max(Pos2::new(r.left() + 60.0, r.top()), r.max), 0.0, pal.window);
+            ui.painter().rect_filled(Rect::from_min_max(Pos2::new(r.left(), r.top() + 60.0), r.max), 0.0, pal.window);
             // Dragging the empty header moves the window.
             let bg = ui.interact(r, ui.id().with("lc_head_drag"), Sense::click_and_drag());
             if bg.drag_started() {
@@ -155,7 +159,7 @@ impl App {
             let used: f32 = fixed.iter().map(|f| f.0 + GUTTER).sum::<f32>() + controls_w + GUTTER;
             let remote = crate::vfs::is_remote(&self.panels[self.active].dir);
             let main_w = (bar.width() - used).max(40.0);
-            segment(&p, Rect::from_min_size(bar.min, Vec2::new(main_w, BAR_H)), t[0], CornerRadius::ZERO, &format!("File manager {}", env!("CARGO_PKG_VERSION")), pal.on_fill, true);
+            segment(&p, Rect::from_min_size(bar.min, Vec2::new(main_w, BAR_H)), t[0], CornerRadius::ZERO, "File manager", pal.on_fill, true);
             let mut x = bar.left() + main_w + GUTTER;
             for (i, (w, tone, label)) in fixed.iter().enumerate() {
                 let lab = if i == 0 && remote { "Server" } else { label };
@@ -261,8 +265,10 @@ impl App {
         let pal = self.pal;
         let t = pal.tones;
         let cmd_focus_ok = self.dialog.is_none() && self.menu.is_none() && self.job.is_none() && self.panels[self.active].quick_search.is_none();
-        egui::TopBottomPanel::bottom("lc_foot").exact_height(ELBOW_H).frame(egui::Frame::NONE.fill(pal.window)).show(ctx, |ui| {
+        egui::TopBottomPanel::bottom("lc_foot").exact_height(ELBOW_H).frame(egui::Frame::NONE).show(ctx, |ui| {
             let r = ui.max_rect();
+            ui.painter().rect_filled(Rect::from_min_max(Pos2::new(r.left() + 60.0, r.top()), r.max), 0.0, pal.window);
+            ui.painter().rect_filled(Rect::from_min_max(r.min, Pos2::new(r.right(), r.bottom() - 60.0)), 0.0, pal.window);
             let p = ui.painter().clone();
             elbow(&p, r.min, true, t[0], pal.window);
             let status = self.status.as_ref().map(|(s, _)| s.clone());
@@ -426,6 +432,32 @@ pub fn set_traffic_lights_hidden(frame: &eframe::Frame, hidden: bool) {
         }
     }
 }
+
+/// Ask macOS to recompute the window shadow from what is drawn (the elbow corners are transparent).
+#[cfg(target_os = "macos")]
+pub fn invalidate_window_shadow(frame: &eframe::Frame) {
+    use std::ffi::{c_char, c_void};
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    #[link(name = "objc")]
+    extern "C" {
+        fn objc_msgSend();
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+    }
+    let Ok(handle) = frame.window_handle() else { return };
+    let RawWindowHandle::AppKit(h) = handle.as_raw() else { return };
+    // SAFETY: plain Objective-C messages to the window's own view and window, on the main thread.
+    unsafe {
+        let send = objc_msgSend as *const ();
+        let get: extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void = std::mem::transmute(send);
+        let window = get(h.ns_view.as_ptr(), sel_registerName(c"window".as_ptr()));
+        if !window.is_null() {
+            get(window, sel_registerName(c"invalidateShadow".as_ptr()));
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn invalidate_window_shadow(_frame: &eframe::Frame) {}
 
 #[cfg(not(target_os = "macos"))]
 pub fn set_traffic_lights_hidden(_frame: &eframe::Frame, _hidden: bool) {}

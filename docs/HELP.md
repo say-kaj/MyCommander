@@ -7,10 +7,11 @@ It looks like a Mac app, but it works like the orthodox file managers you may kn
 ## The first five minutes
 
 - **Two panels.** The one with the cursor is *active*. **Tab** switches. **Enter** opens a folder (or a file with its Mac app); **Backspace**/**Cmd-↑** goes up.
-- **Mark files** with **Insert** or **Space** (or right-click). Marked files are what the next command works on; without marks it is the file under the cursor.
+- **Mark files** with **Insert** or **Space** (or Cmd-click). Marked files are what the next command works on; without marks it is the file under the cursor.
 - **F5 copy, F6 move/rename, F7 new folder, F8 delete.** Copy and move go to the *other* panel's folder – that is the whole idea.
 - **F3 view, F4 edit.** F3 shows text, images, PDFs; F4 opens a small editor.
 - **Cmd-D (Places)** jumps anywhere: all mounted disks and network shares (with free space and *Eject*), your SSH servers and your favorite folders.
+- **Right-click** a file for the context menu: open, Quick Look, show in Finder, copy, move, rename, move to Trash, compress and more.
 - **Type a command** at the bottom and press Enter: it runs in the active panel's folder. **Ctrl-O** shows its output.
 - **F9** opens the menu bar, **Cmd-,** opens Settings, **F1** this help.
 - **LCARS look.** The button **LCARS** right of *Settings* switches the whole app to an LCARS interface (elbows, colour segments, the function keys as a side column); **CLASSIC** in the same place switches back. Four colour themes under Settings ▸ Appearance.

@@ -75,6 +75,7 @@ fn main() -> eframe::Result<()> {
         .with_inner_size([1280.0, 800.0])
         .with_min_inner_size([760.0, 440.0])
         // Unified title bar: the toolbar sits next to the traffic-light buttons.
+        .with_transparent(true)
         .with_fullsize_content_view(true)
         .with_title_shown(false)
         .with_titlebar_shown(false);

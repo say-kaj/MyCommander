@@ -4,7 +4,7 @@
 //! "%s in %d files"). The rules behind it (directories first, `..` can't be
 //! marked, sort modes) live in `panel.rs`.
 
-use crate::app::App;
+use crate::app::{Action, App};
 use crate::fsutil::{self, Kind};
 use crate::panel::{Listing, Panel, SortMode};
 use crate::theme::*;
@@ -430,6 +430,103 @@ impl App {
 
         }
 
+        // ---- Context menu (PNL-17) -------------------------------------------
+        let menu_entry = p.current().filter(|e| !e.is_updir()).cloned();
+        let menu_marked = p.marked_count();
+        let menu_remote = crate::vfs::is_remote(&p.dir);
+        let menu_hidden = p.show_hidden;
+        let mut pick: Option<Pick> = None;
+        list_resp.context_menu(|ui| {
+            ui.set_min_width(210.0);
+            let item = |ui: &mut egui::Ui, label: &str, key: &str| -> bool {
+                let b = egui::Button::new(label).shortcut_text(key).frame(false);
+                let r = ui.add(b);
+                if r.clicked() {
+                    ui.close_menu();
+                }
+                r.clicked()
+            };
+            if let Some(e) = &menu_entry {
+                let many = menu_marked > 1;
+                if !many && item(ui, "Open", "↩") {
+                    pick = Some(Pick::Open);
+                }
+                if !menu_remote {
+                    if item(ui, "Quick Look", "") {
+                        pick = Some(Pick::Act(Action::QuickLook));
+                    }
+                    if item(ui, "Show in Finder", "") {
+                        pick = Some(Pick::Act(Action::OpenFinder));
+                    }
+                    if e.is_dir_like() && item(ui, "Open in Terminal", "") {
+                        pick = Some(Pick::Act(Action::OpenTerminal));
+                    }
+                }
+                ui.separator();
+                if item(ui, "Copy…", "F5") {
+                    pick = Some(Pick::Act(Action::Copy));
+                }
+                if item(ui, "Move…", "F6") {
+                    pick = Some(Pick::Act(Action::Move));
+                }
+                if !many && item(ui, "Rename…", "") {
+                    pick = Some(Pick::Rename);
+                }
+                ui.separator();
+                if !menu_remote && item(ui, "Move to Trash", "⌘⌫") {
+                    pick = Some(Pick::Trash);
+                }
+                if item(ui, "Delete…", "F8") {
+                    pick = Some(Pick::Act(Action::Delete));
+                }
+                ui.separator();
+                if !menu_remote {
+                    if item(ui, "Compress", "") {
+                        pick = Some(Pick::Act(Action::Zip));
+                    }
+                    if item(ui, "Copy Path", "") {
+                        pick = Some(Pick::Act(Action::CopyPath));
+                    }
+                }
+                if item(ui, if e.marked { "Unmark" } else { "Mark" }, "Space") {
+                    pick = Some(Pick::Mark);
+                }
+                ui.separator();
+            }
+            if item(ui, "New Folder", "F7") {
+                pick = Some(Pick::Act(Action::Mkdir));
+            }
+            if item(ui, "Reread", "⌘R") {
+                pick = Some(Pick::Act(Action::Reread));
+            }
+            if item(ui, if menu_hidden { "Hide Hidden Files" } else { "Show Hidden Files" }, "⇧⌘.") {
+                pick = Some(Pick::Act(Action::ToggleHidden));
+            }
+        });
+        if let Some(pk) = pick {
+            let ctx = ui.ctx().clone();
+            self.active = idx;
+            match pk {
+                Pick::Open => self.enter(&ctx),
+                Pick::Act(a) => self.do_action(&ctx, a),
+                Pick::Mark => {
+                    self.panels[idx].toggle_mark_current();
+                }
+                Pick::Rename => {
+                    let sources = self.panels[idx].selection();
+                    if let Some(e) = sources.first().cloned() {
+                        self.dialog = Some(crate::app::Dialog::CopyMove { kind: crate::ops::OpKind::Move, sources, mask: "*".into(), dest: e.name });
+                    }
+                }
+                Pick::Trash => {
+                    let paths: Vec<PathBuf> = self.panels[idx].selection().iter().map(|e| e.path.clone()).collect();
+                    if !paths.is_empty() {
+                        fsutil::trash_async(paths, ctx.clone());
+                    }
+                }
+            }
+        }
+
         // ---- Mouse results --------------------------------------------------
         if list_resp.clicked() || list_resp.secondary_clicked() || list_resp.double_clicked() {
             self.active = idx;
@@ -445,7 +542,12 @@ impl App {
             self.active = idx;
             self.panels[idx].cursor = i;
             let cmd = ui.input(|inp| inp.modifiers.command);
-            if secondary || cmd {
+            if secondary {
+                // Like Finder: right-clicking an item outside the marked set selects just that item.
+                if !self.panels[idx].entries[i].marked {
+                    self.panels[idx].unmark_all();
+                }
+            } else if cmd {
                 self.panels[idx].toggle_mark_current();
             } else if double {
                 let ctx = ui.ctx().clone();
@@ -453,6 +555,15 @@ impl App {
             }
         }
     }
+}
+
+/// What the context menu asked for (PNL-17).
+enum Pick {
+    Open,
+    Act(Action),
+    Mark,
+    Rename,
+    Trash,
 }
 
 /// Shorten text with "…" in the middle so it fits `max_w` pixels.

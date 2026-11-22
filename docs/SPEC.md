@@ -150,6 +150,13 @@ describes *behaviour*. Binary addresses are given as provenance only.
   its mount path is below `/Volumes/.timemachine`, its name or device mentions Time Machine, or a
   local volume holds `Backups.backupdb`. The mount table is read once when the dialog opens and
   never touches the volumes themselves (a stale network mount must not block the UI).
+- **PNL-17** Opening and context menu. Enter and double-click open a folder, run a *program* or open any other file with
+  its default Mac app. A file counts as a program only if it is executable **and** really is one (Mach-O binary or a
+  `#!` script); a document that merely has an execute bit (typical on network shares) opens with its app. A **right
+  click** shows a Finder-like context menu for the item under the mouse (it first selects that item unless it is
+  already part of the marked set): *Open · Quick Look · Show in Finder · Open in Terminal · Copy… · Move… · Rename… ·
+  Move to Trash · Delete… · Compress · Copy Path · Mark · New Folder*; on a server only the entries that make sense
+  there. On empty space it offers *New Folder*, *Reread* and *Show/Hide Hidden Files*. ⌘-click and Insert/Space mark.
 - **PNL-12a** Folder sizes (setting `dir_sizes`, Settings ▸ Panels, default **on**): sizes of
   the sub-folders in a local listing are calculated in the background and appear in the Size
   column as they arrive; the UI never waits. Total logical size of all files below the folder,
@@ -360,7 +367,7 @@ Taken from mc's `mc.default.keymap` (`[filemanager]`, `[panel]`), plus Mac alias
 |----|------|--------|
 | U-1 | Exact pixel/column layout of mc's running terminal UI | Unverified. The person declined running mc in a recorded terminal; layout follows format strings in the binary (size width 7, date 12 chars). Low severity – the app deliberately uses a Mac look. |
 | U-2 | Runtime behaviour vs. mechanics values | The mechanics sheet is readable and sourced (30 of 32 values with a binary/config source) but no automated comparison against a running mc exists. |
-| U-3 | Estimated (not sourced) values | "Copy preserves attributes" and "right click marks". |
+| U-3 | Estimated (not sourced) values | "Copy preserves attributes". |
 | L-1 | No archives and no shell link | SFTP/FTP: see §5a. |
 | L-3 | Delete is permanent | Trash integration is a post-1.0 candidate. |
 | L-5 | Quick view: PDF shows only the first page; HEIC/PDF depend on macOS `sips`; images inside Markdown are not loaded; highlighting uses syntect's built-in themes and syntax set (two-face extras) | Post-1.0 candidates. |
@@ -433,6 +440,8 @@ cross-platform support (Linux/Windows) behind the existing platform guards.
   Not available when run outside an .app bundle.
 - **UPD-4** Homebrew keeps working: `brew upgrade --cask mycommander` simply installs the same release.
 - Test aids: `MYCMD_UPDATE_TEST="<ver>|<zip url>"` fakes a release, `MYCMD_UPDATE_AUTO=1` installs it at once.
+- **MNU-2** *Help* (macOS menu bar): *myCommander Help* (F1), *Check for Updates…*, *myCommander on GitHub…* (opens
+  https://github.com/say-kaj/MyCommander). The About panel (app menu) and the in-app About box show the author and that address.
 - **UPD-6** *Help ▸ Check for Updates…* (macOS menu bar) asks GitHub right away, even when `check_updates` is
   off, and always answers in the status line: "myCommander X is up to date", "Version X is available – click
   Update in the toolbar" (the button appears) or "Could not check for updates (offline?)".
@@ -507,8 +516,9 @@ bar, segment and pill shapes, 5 px gutter, Antonio). The classic Finder-like loo
   level, user. Gaps between all segments are 5 px.
 - **LCR-5** Panels: no card, no shadow. Header band (`tone-1` for the active panel, `tone-3` otherwise) with the panel
   name and sort mode, path in `tone-4`, column titles in the muted ink, rows without stripes. Cursor = `accent` pill with
-  rounded left end and dark text; marked files = `tone-4`, bold, filled dot; folder = filled dot, file = hollow ring,
-  no file icons. Footer: three segments (items · free space · marked).
+  rounded left end and dark text; marked files = `tone-4`, bold, with a check mark;
+  flat geometric pictograms in the palette's tones (orange folder with a tab, sheet with folded corner and text bars,
+  app tile, `>_` sheet for programs; the file type picks the tone). Footer: three segments (items · free space · marked).
 - **LCR-6** Type: Antonio Regular and Bold (SIL OFL, `assets/fonts/`, bundled in the binary) for the whole interface in
   the LCARS look; labels, buttons and menu items are uppercase, file names keep their case. Minimum size 14 px.
 - **LCR-7** Dialogs: a section header (pill bar, black title block) instead of the title; buttons are tone fills
@@ -517,6 +527,9 @@ bar, segment and pill shapes, 5 px gutter, Antonio). The classic Finder-like loo
   header bar – *minimise* (`win-min`), *maximise / restore* (`win-max`) and *close* (`win-close`, rounded outer
   corner), three square 54 px segments with a 5 px gap, each with a symbol (dash, square, cross) and a tooltip. Close
   behaves like *Quit* (including the confirmation). The header is also the drag area; a double click maximises.
-  Switching back to the classic look shows the macOS buttons again.
+  Switching back to the classic look shows the macOS buttons again. The window is created transparent; in the LCARS
+  look the corners outside the elbows' outer arcs stay transparent, so the window silhouette follows the elbows (the
+  window shadow is recomputed about once a second). The classic look paints everything opaque as before. Text in
+  bar segments is centred vertically.
 - **LCR-8** Not part of this release: the borderless transparent window of the design system's app mode, the key
   sounds, a user-defined palette.

@@ -48,6 +48,8 @@ impl NativeMenu {
                 version: Some(env!("CARGO_PKG_VERSION").into()),
                 authors: Some(vec!["Kay Mühlena".into()]),
                 copyright: Some("© Kay Mühlena".into()),
+                // macOS shows only `credits` in the About panel (no website field there).
+                credits: Some("https://github.com/say-kaj/MyCommander".into()),
                 website: Some("https://github.com/say-kaj/MyCommander".into()),
                 website_label: Some("github.com/say-kaj/MyCommander".into()),
                 comments: Some("A two-panel file manager for macOS, organised like Midnight Commander.".into()),
@@ -95,7 +97,8 @@ impl NativeMenu {
         }
         let help = make("myCommander Help\tF1", Action::Help, true);
         let check = make("Check for Updates…", Action::CheckUpdates, true);
-        let help_menu = Submenu::with_items("Help", true, &[&help, &PredefinedMenuItem::separator(), &check]).ok()?;
+        let github = make("myCommander on GitHub…", Action::OpenGithub, true);
+        let help_menu = Submenu::with_items("Help", true, &[&help, &PredefinedMenuItem::separator(), &check, &github]).ok()?;
         menu.append(&help_menu).ok()?;
         menu.init_for_nsapp();
         Some(NativeMenu { _menu: menu, ids })

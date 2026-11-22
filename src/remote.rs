@@ -274,7 +274,7 @@ impl App {
             if self.dialog.is_none() && !self.cmdline.trim().is_empty() {
                 return Err("Enter would run the text on the command line, which needs the Full level.".into());
             }
-            if self.dialog.is_none() && self.panels[self.active].current().map(|e| e.is_executable() && e.kind == Kind::File).unwrap_or(false) {
+            if self.dialog.is_none() && self.panels[self.active].current().map(|e| e.is_executable() && e.kind == Kind::File && fsutil::is_program(&e.path)).unwrap_or(false) {
                 return Err("Enter would run a program, which needs the Full level.".into());
             }
         }

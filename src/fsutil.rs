@@ -503,3 +503,66 @@ pub fn version_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
     (ab.len() - i).cmp(&(bb.len() - j))
 }
+
+/// Is this file really a program (Mach-O binary or `#!` script)? A document with an execute bit
+/// (common on network shares) is not, and opens with its app (PNL-17).
+pub fn is_program(path: &Path) -> bool {
+    use std::io::Read;
+    let mut b = [0u8; 4];
+    let Ok(mut f) = fs::File::open(path) else { return false };
+    if f.read_exact(&mut b).is_err() {
+        return false;
+    }
+    matches!(
+        u32::from_be_bytes(b),
+        0xfeedface | 0xfeedfacf | 0xcafebabe | 0xcffaedfe | 0xcefaedfe | 0xbebafeca
+    ) || &b[..2] == b"#!"
+}
+
+static TRASH_RESULT: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Move files to the Trash through Finder (Put Back works), in the background.
+pub fn trash_async(paths: Vec<PathBuf>, ctx: egui::Context) {
+    std::thread::spawn(move || {
+        let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+        let list: Vec<String> = paths.iter().map(|p| format!("POSIX file \"{}\"", esc(&p.to_string_lossy()))).collect();
+        let script = format!("tell application \"Finder\" to delete {{{}}}", list.join(", "));
+        let out = std::process::Command::new("/usr/bin/osascript").arg("-e").arg(script).output();
+        let msg = match out {
+            Ok(o) if o.status.success() => format!("Moved {} item{} to the Trash", paths.len(), if paths.len() == 1 { "" } else { "s" }),
+            Ok(o) => format!("Cannot move to the Trash: {}", String::from_utf8_lossy(&o.stderr).trim()),
+            Err(e) => format!("Cannot move to the Trash: {e}"),
+        };
+        *TRASH_RESULT.lock().unwrap() = Some(msg);
+        ctx.request_repaint();
+    });
+}
+
+pub fn take_trash_result() -> Option<String> {
+    TRASH_RESULT.lock().unwrap().take()
+}
+
+#[cfg(test)]
+mod program_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn documents_with_an_execute_bit_are_not_programs() {
+        let d = std::env::temp_dir().join(format!("mycmd-prog-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        let write = |name: &str, bytes: &[u8]| {
+            let p = d.join(name);
+            fs::write(&p, bytes).unwrap();
+            fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        assert!(!is_program(&write("photo.jpg", &[0xff, 0xd8, 0xff, 0xe0, 0, 0x10])));
+        assert!(!is_program(&write("notes.txt", b"hello world")));
+        assert!(!is_program(&write("tiny", b"a")));
+        assert!(is_program(&write("run.sh", b"#!/bin/sh\necho hi\n")));
+        assert!(is_program(&write("macho", &[0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0])));
+        let _ = fs::remove_dir_all(&d);
+    }
+}

@@ -52,6 +52,8 @@ pub enum Action {
     Hotlist,
     HotlistAdd,
     CheckUpdates,
+    /// Open the project page in the browser (Help menu).
+    OpenGithub,
     /// Classic ⇄ LCARS look (LCR-1).
     ToggleLook,
     CycleListing,
@@ -209,6 +211,8 @@ pub struct App {
     pub lcars_theme_applied: crate::settings::LcarsTheme,
     /// The macOS window buttons are hidden (LCARS look).
     pub lights_hidden: bool,
+    /// Last time the window shadow was recomputed (LCARS corners are transparent).
+    pub last_shadow: std::time::Instant,
 }
 
 impl App {
@@ -302,6 +306,7 @@ impl App {
             help_cache: Default::default(),
             lcars_theme_applied: settings_lcars_theme,
             lights_hidden: false,
+            last_shadow: std::time::Instant::now(),
         }
     }
 
@@ -419,7 +424,7 @@ impl App {
             self.chdir_active(&p);
             return;
         }
-        if e.is_executable() && e.kind == Kind::File {
+        if e.is_executable() && e.kind == Kind::File && fsutil::is_program(&e.path) {
             if self.remote.guard.map_or(false, |l| l < crate::settings::McpLevel::Full) {
                 self.flash(ctx, "Running programs is not allowed for remote control at this level");
                 return;
@@ -591,6 +596,9 @@ impl App {
         }
         match a {
             Action::Help => self.dialog = Some(Dialog::Help { page: 0 }),
+            Action::OpenGithub => {
+                let _ = std::process::Command::new("/usr/bin/open").arg("https://github.com/say-kaj/MyCommander").spawn();
+            }
             Action::ToggleLook => {
                 use crate::settings::Look;
                 self.settings.look = if self.settings.look == Look::Lcars { Look::Classic } else { Look::Lcars };
@@ -1299,6 +1307,15 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// The LCARS look leaves the window corners outside the elbows transparent (LCR-9).
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        if self.settings.look == crate::settings::Look::Lcars && self.screenshot.is_none() {
+            [0.0, 0.0, 0.0, 0.0]
+        } else {
+            egui::Rgba::from(visuals.panel_fill).to_array()
+        }
+    }
+
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         crate::control::cleanup();
     }
@@ -1311,6 +1328,10 @@ impl eframe::App for App {
         if want_hidden != self.lights_hidden {
             self.lights_hidden = want_hidden;
             crate::lcars::set_traffic_lights_hidden(frame, want_hidden);
+        }
+        if want_hidden && self.last_shadow.elapsed() > std::time::Duration::from_millis(700) {
+            self.last_shadow = std::time::Instant::now();
+            crate::lcars::invalidate_window_shadow(frame);
         }
         self.handle_screenshot(ctx);
         self.poll_native_menu(ctx);
@@ -1352,6 +1373,10 @@ impl eframe::App for App {
         ctx.request_repaint_after(std::time::Duration::from_secs(60));
         if crate::update::busy() {
             ctx.request_repaint_after(std::time::Duration::from_millis(300));
+        }
+        if let Some(msg) = fsutil::take_trash_result() {
+            self.flash(ctx, msg);
+            self.reload_both();
         }
         if let Some(msg) = crate::mounts::take_result() {
             self.flash(ctx, msg);

@@ -405,16 +405,7 @@ pub fn finder_size(e: &Entry) -> String {
 pub fn draw_file_icon(p: &egui::Painter, rect: egui::Rect, e: &Entry, pal: &Pal) {
     use egui::{pos2, Rect};
     if pal.lcars {
-        // LCARS look (LCR-5): no pictograms – a filled dot for folders, a hollow ring for files.
-        let c = rect.center();
-        let rad = rect.height().min(rect.width()) * 0.2;
-        if e.is_dir_like() {
-            p.circle_filled(c, rad, if e.is_updir() { pal.tones[2] } else { pal.tones[1] });
-        } else if e.is_executable() {
-            p.circle_filled(c, rad, pal.tones[4]);
-        } else {
-            p.circle_stroke(c, rad, Stroke::new(2.0_f32, pal.tones[2]));
-        }
+        draw_lcars_icon(p, rect, e, pal);
         return;
     }
     let h = fsutil::highlight(e);
@@ -487,7 +478,8 @@ pub const HELP: &[(&str, &str)] = &[
     ("Insert, Ctrl-T, Space", "Mark / unmark and move down"),
     ("Shift-Up/Down", "Mark while moving"),
     ("+  -  *", "Select group, unselect group, invert (empty command line)"),
-    ("Right click", "Mark / unmark the file under the mouse"),
+    ("Right click", "Context menu (open, copy, rename, trash, mark, …)"),
+    ("Cmd-click", "Mark / unmark the file under the mouse"),
     ("Ctrl-S", "Quick search: type the start of a name"),
     ("Ctrl-R, Cmd-R", "Re-read both panels"),
     ("Ctrl-U", "Swap the panels"),
@@ -517,3 +509,77 @@ pub const HELP: &[(&str, &str)] = &[
     ("Alt-P / Alt-N", "Command history"),
     ("F10", "Quit"),
 ];
+
+/// LCARS pictograms (LCR-5): flat, single-colour, geometric – a folder with a tab, a sheet with a folded
+/// corner and text bars, an app tile; the file type decides the tone.
+fn draw_lcars_icon(p: &egui::Painter, rect: egui::Rect, e: &Entry, pal: &Pal) {
+    use egui::{pos2, CornerRadius, Rect};
+    let s = rect.height().min(rect.width());
+    let r = Rect::from_center_size(rect.center(), Vec2::splat(s));
+    let ground = pal.window;
+    let t = pal.tones;
+    let h = fsutil::highlight(e);
+    let tone = match h {
+        fsutil::Highlight::Directory => t[0],
+        fsutil::Highlight::Executable => t[4],
+        fsutil::Highlight::Archive => t[1],
+        fsutil::Highlight::Doc => t[5],
+        fsutil::Highlight::Source => t[3],
+        fsutil::Highlight::Media | fsutil::Highlight::Graph => t[1],
+        fsutil::Highlight::Database => t[2],
+        fsutil::Highlight::Temp => t[2].gamma_multiply(0.6),
+        fsutil::Highlight::StaleLink | fsutil::Highlight::Core => pal.danger,
+        _ => t[2],
+    };
+    let rad = |nw: f32, sw: f32| CornerRadius { nw: nw as u8, sw: sw as u8, ne: 0, se: 0 };
+    if e.name.ends_with(".app") && e.is_dir_like() {
+        let tile = r.shrink(s * 0.04);
+        p.rect_filled(tile, CornerRadius::same((s * 0.3) as u8), t[5]);
+        p.circle_filled(tile.center(), s * 0.2, ground);
+        p.circle_filled(tile.center(), s * 0.1, pal.accent);
+    } else if e.is_dir_like() {
+        let body = Rect::from_min_max(pos2(r.left(), r.top() + s * 0.26), pos2(r.right(), r.bottom() - s * 0.08));
+        let tab = Rect::from_min_max(pos2(r.left(), r.top() + s * 0.1), pos2(r.left() + s * 0.46, r.top() + s * 0.32));
+        let c = if e.is_updir() { t[2] } else { tone };
+        p.rect_filled(tab, rad(s * 0.12, 0.0), c);
+        p.rect_filled(body, rad(s * 0.2, s * 0.2), c);
+        if e.is_updir() {
+            let m = body.center() + Vec2::new(s * 0.08, 0.0);
+            let a = s * 0.17;
+            let st = Stroke::new(2.0_f32, ground);
+            p.line_segment([m + Vec2::new(0.0, a), m - Vec2::new(0.0, a)], st);
+            p.line_segment([m - Vec2::new(0.0, a), m + Vec2::new(-a * 0.8, -a * 0.2)], st);
+            p.line_segment([m - Vec2::new(0.0, a), m + Vec2::new(a * 0.8, -a * 0.2)], st);
+        }
+    } else {
+        let sheet = Rect::from_center_size(r.center(), Vec2::new(s * 0.72, s * 0.96));
+        let cut = s * 0.26;
+        let outline = vec![
+            pos2(sheet.left(), sheet.top()),
+            pos2(sheet.right() - cut, sheet.top()),
+            pos2(sheet.right(), sheet.top() + cut),
+            pos2(sheet.right(), sheet.bottom()),
+            pos2(sheet.left(), sheet.bottom()),
+        ];
+        if h == fsutil::Highlight::Executable {
+            p.add(egui::Shape::convex_polygon(outline, tone, Stroke::NONE));
+            p.text(sheet.center() + Vec2::new(0.0, s * 0.06), egui::Align2::CENTER_CENTER, ">_", FontId::monospace(s * 0.36), pal.on_fill);
+        } else {
+            p.add(egui::Shape::closed_line(outline, Stroke::new(2.0_f32, tone)));
+            p.add(egui::Shape::convex_polygon(vec![pos2(sheet.right() - cut, sheet.top()), pos2(sheet.right(), sheet.top() + cut), pos2(sheet.right() - cut, sheet.top() + cut)], tone, Stroke::NONE));
+            for k in 0..3 {
+                let y = sheet.top() + s * (0.42 + 0.17 * k as f32);
+                p.rect_filled(Rect::from_min_max(pos2(sheet.left() + s * 0.12, y - 1.0), pos2(sheet.right() - s * 0.12 - if k == 2 { s * 0.18 } else { 0.0 }, y + 1.0)), 0.0, tone);
+            }
+        }
+    }
+    if matches!(e.kind, Kind::Symlink | Kind::StaleLink) {
+        let b = Rect::from_min_size(pos2(r.left() - s * 0.04, r.bottom() - s * 0.44), Vec2::splat(s * 0.44));
+        p.rect_filled(b, CornerRadius::same((s * 0.12) as u8), pal.accent);
+        let col = if e.kind == Kind::StaleLink { pal.danger } else { pal.on_fill };
+        let st = Stroke::new(1.6_f32, col);
+        p.line_segment([b.left_bottom() + Vec2::new(3.0, -3.0), b.right_top() + Vec2::new(-3.0, 3.0)], st);
+        p.line_segment([b.right_top() + Vec2::new(-3.0, 3.0), b.right_top() + Vec2::new(-3.0 - s * 0.14, 3.0)], st);
+        p.line_segment([b.right_top() + Vec2::new(-3.0, 3.0), b.right_top() + Vec2::new(-3.0, 3.0 + s * 0.14)], st);
+    }
+}

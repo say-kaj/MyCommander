@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1
+- Fix: a double-click (or Enter) on a document with an execute bit – typical on network shares – opened nothing or ran it as a command. Only real programs (Mach-O binaries and `#!` scripts) are run; everything else opens with its default app (SPEC PNL-17).
+- **Right-click shows a Finder-like context menu** (open, Quick Look, show in Finder, Copy, Move, Rename, Move to Trash, Delete, Compress, Copy Path, Mark, New Folder …) instead of marking. Cmd-click, Space and Insert still mark.
+- About shows the GitHub address; new *Help ▸ myCommander on GitHub…*.
+- LCARS look: the version is shown once (footer), not twice.
+
 ## 1.4.0
 - **LCARS look (SPEC §15).** A button right of *Settings* switches the whole app to an LCARS interface built from the author's LCARS design system: elbows, colour segments with a 5 px gutter, the ten function keys as a side column, command line and status bar in the footer, panels with header bands, accent-pill cursor and dot markers, the Antonio typeface, LCARS dialogs. Four palettes (TNG, Nemesis, Picard, Red alert) in Settings ▸ Appearance; **CLASSIC** switches back. The choice is saved. The LCARS look hides the macOS window buttons and draws its own as square segments in the header bar (minimise, maximise, close; LCR-9).
 
