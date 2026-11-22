@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+- **Remote control for AI agents (MCP, SPEC §14).** Settings ▸ General ▸ Remote control (off by default; levels Read only / Control / Full) lets agents such as Claude Code, Claude Desktop, Cursor, VS Code, Codex or Gemini CLI look at and use the running app through `myCommander --mcp`: 21 tools (state, listings, search, screenshots, navigation, marking, keys, menu items, copy/move/delete/rename/mkdir, shell). File changes show an Allow/Deny question first; below *Full* everything that changes files is refused; agents can never open Settings or answer the question themselves.
+- **Help rebuilt:** pages *Welcome*, *Keys* and *Remote control* with a step-by-step setup for Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI, Windsurf and others, copy buttons for the command and JSON, and a live status. The same texts live in `docs/HELP.md` and `docs/MCP.md`.
+- **About** names the author and links to the GitHub project; the macOS About panel shows the real version.
+- **Help ▸ Check for Updates…** checks for a new release on demand and reports the result (SPEC UPD-6).
+
 ## 1.2.6
 - Mouse wheel direction is now a three-way choice in Settings ▸ Panels: like the system, turn towards me = down (default), turn towards me = up (SPEC PNL-15).
 

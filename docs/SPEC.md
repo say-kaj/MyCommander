@@ -381,6 +381,8 @@ src/
   fsutil.rs       Directory reading, size/date/permission formatting, highlight classes
   update.rs       In-app update check and installer (UPD)
   mounts.rs       Mount table for Places (getmntinfo; PNL-16)
+  control.rs      Remote control: tool table, socket server, MCP stdio server (REM)
+  remote.rs       App side of remote control: tool handlers on the UI thread (REM)
   dirsize.rs      Background folder sizes (getattrlistbulk worker pool, cache; PNL-12a)
   ops.rs          Background jobs (copy, move, delete, dirsize, find, shell) + Progress
   dialogs.rs      Standard dialogs + progress / overwrite window
@@ -430,7 +432,56 @@ cross-platform support (Linux/Windows) behind the existing platform guards.
   Not available when run outside an .app bundle.
 - **UPD-4** Homebrew keeps working: `brew upgrade --cask mycommander` simply installs the same release.
 - Test aids: `MYCMD_UPDATE_TEST="<ver>|<zip url>"` fakes a release, `MYCMD_UPDATE_AUTO=1` installs it at once.
+- **UPD-6** *Help ▸ Check for Updates…* (macOS menu bar) asks GitHub right away, even when `check_updates` is
+  off, and always answers in the status line: "myCommander X is up to date", "Version X is available – click
+  Update in the toolbar" (the button appears) or "Could not check for updates (offline?)".
 - **UPD-5** Releases are signed with the stable identity *myCommander Release Signing* (`scripts/make_signing_identity.sh`,
   used by `scripts/package.sh`). The designated requirement is `identifier "io.github.say-kaj.mycommander" and certificate leaf = H"…"`,
   so macOS privacy grants (Documents, Downloads, volumes …) survive updates. Ad-hoc signing (requirement = binary hash) would
   make macOS forget them on every update. The signing key backup lives in `~/.myCommander-signing/` and is never committed.
+
+## 14. Remote control and MCP (REM)
+
+Purpose: let AI agents (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI, …) look at and
+drive the *running* app through the Model Context Protocol, and let developers test the app. The agent
+works in the real panels, so the person sees everything it does.
+
+- **REM-1** Setting `mcp_level` (Settings ▸ General ▸ Remote control): **Off** (default) · **Read only** ·
+  **Control** · **Full**. Each level includes the one before. Setting `mcp_ask` (default **on**): file changes
+  of the *Full* level need the person's approval in the app. Changes apply immediately, no restart.
+- **REM-2** Transport to the app: a Unix domain socket `~/Library/Application Support/myCommander/control.sock`
+  (mode 0600, no network port). It exists only while the level is not *Off*, a stale file is replaced at start,
+  it is removed on quit. Protocol: one JSON object per line, request `{"id":1,"tool":"get_state","args":{}}`,
+  answer `{"id":1,"ok":true,"result":{…},"png_base64":"…"}` or `{"id":1,"ok":false,"error":"…"}`.
+  Test aid: `MYCMD_CONFIG_DIR` replaces the configuration folder (settings and socket).
+- **REM-3** `myCommander --mcp` is an MCP server on stdio (JSON-RPC 2.0, protocol 2025-06-18, older
+  2025-03-26 / 2024-11-05 accepted). It answers `initialize`, `ping`, `tools/list` and `tools/call`; every call is
+  forwarded to the socket. `tools/list` works without a running app so that registration succeeds; calls fail
+  with a plain-language hint (start the app, enable remote control) when the socket is missing or the level is
+  too low. Only JSON-RPC goes to stdout; diagnostics go to stderr. Tools carry `annotations`
+  (`readOnlyHint`, `destructiveHint`) so agent hosts can ask their own permission questions.
+- **REM-4** Tools (`*` = also works on a path without a panel). Names are file names inside the panel's folder.
+  - *Read only*: `get_state`, `list_entries`*, `read_text_file`, `find_files`, `places`, `screenshot`,
+    `get_help`, `list_menu_items`.
+  - *Control*: `change_dir`, `set_active_panel`, `set_cursor`, `select`, `configure_panel`, `press_keys`,
+    `type_text`, `run_menu_item`.
+  - *Full*: `copy_or_move`, `delete`, `make_directory`, `rename`, `run_shell_command`.
+  Panels are addressed as `active` (default), `other`, `left` or `right`.
+- **REM-5** Guard rails (not a sandbox: *Full* may do what the person can do). Below *Full*, `press_keys`,
+  `type_text` and `run_menu_item` refuse everything that changes files or runs programs: Edit, Copy, Move,
+  Mkdir, Delete, Chmod/Chown/links, user menu, Ctrl-X prefix, Quit, Enter on an executable, Enter with text on the
+  command line, any open confirmation dialog (only Escape works) and the editor. At *Full* with `mcp_ask` on, every
+  file change shows a dialog listing exactly what will happen (**Allow** / **Deny**, Return / Escape);
+  nothing is done before the person decides. An overwrite question of a running job is always shown to the person.
+- **REM-6** Everything that touches app state runs on the UI thread between frames; the socket threads never
+  block the UI. Slow things answer in time: tools reply after at most ~25 s with `status: "running"` (jobs) or
+  `status: "waiting_for_user_approval"` (approval); the agent then polls `get_state`. Keys are played one per frame.
+  File-system tools without panel (`list_entries` with `path`, `read_text_file`, `find_files`) run in the socket
+  thread; `find_files` stops after 10 s, `read_text_file` after `max_bytes` (default 64 KB, at most 1 MB).
+- **REM-7** `screenshot` returns the window as a PNG (scaled to `max_width`, default 1400) as an MCP image.
+  It needs a visible, non-minimised window.
+- **REM-8** Help (F1, Help ▸ myCommander Help) has three pages: **Welcome** (`docs/HELP.md`), **Keys** and
+  **Remote control** (`docs/MCP.md`), rendered from the same Markdown files that ship in the repository.
+  `{{BIN}}` in these files is replaced by the real path of the running binary, so every snippet is copy-ready.
+  The Remote control page has buttons that copy the Claude Code command and the JSON configuration, and shows
+  whether the socket is active. `get_help` returns the same texts to agents.

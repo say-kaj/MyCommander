@@ -51,6 +51,7 @@ pub enum Action {
     Find,
     Hotlist,
     HotlistAdd,
+    CheckUpdates,
     CycleListing,
     ListingDialog(usize),
     SortDialog(usize),
@@ -107,8 +108,10 @@ pub enum Dialog {
     Find { start: String, pattern: String, content: String, case: bool, skip_hidden: bool },
     FindResults { shared: Shared, cursor: usize },
     Hotlist { cursor: usize, mounts: Vec<crate::mounts::Mount>, hosts: Vec<String> },
-    Help,
+    Help { page: usize },
     About,
+    /// An agent asks permission to change files (REM-5). Only the person can answer.
+    RemoteAsk { id: u64, title: String, lines: Vec<String> },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -185,6 +188,8 @@ pub struct App {
     pub char_w: f32,
     pub quit_asked: bool,
     pub update_started: bool,
+    /// A check was asked for from the Help menu; its result is announced (UPD-6).
+    pub manual_check: bool,
     pub last_update_check: std::time::Instant,
     pub pal: crate::theme::Pal,
     pub native_menu: Option<crate::native_menu::NativeMenu>,
@@ -194,6 +199,10 @@ pub struct App {
     pub last_panelize: Option<(PathBuf, Vec<PathBuf>)>,
     /// x position of each menu title in the menu bar (for placing the drop-down).
     pub menu_x: [f32; 4],
+    /// Remote control state (SPEC §14).
+    pub remote: crate::remote::RemoteState,
+    /// Markdown render cache of the Help pages.
+    pub help_cache: std::cell::RefCell<egui_commonmark::CommonMarkCache>,
 }
 
 impl App {
@@ -254,12 +263,15 @@ impl App {
             preview: Default::default(),
             quit_asked: false,
             update_started: false,
+            manual_check: false,
             last_update_check: std::time::Instant::now(),
             pal,
             native_menu,
             search_text: String::new(),
             last_panelize: None,
             menu_x: [12.0, 70.0, 130.0, 220.0],
+            remote: Default::default(),
+            help_cache: Default::default(),
         }
     }
 
@@ -358,6 +370,10 @@ impl App {
             return;
         }
         if e.is_executable() && e.kind == Kind::File {
+            if self.remote.guard.map_or(false, |l| l < crate::settings::McpLevel::Full) {
+                self.flash(ctx, "Running programs is not allowed for remote control at this level");
+                return;
+            }
             if self.settings.confirm_execute {
                 self.dialog = Some(Dialog::ConfirmExec { name: e.name.clone() });
             } else {
@@ -404,6 +420,10 @@ impl App {
             };
             self.chdir_active(&target);
             self.cmdline.clear();
+            return;
+        }
+        if self.remote.guard.map_or(false, |l| l < crate::settings::McpLevel::Full) {
+            self.flash(ctx, "The command line is not allowed for remote control at this level");
             return;
         }
         if crate::vfs::is_remote(&self.act().dir) {
@@ -503,6 +523,10 @@ impl App {
     }
 
     pub fn do_action(&mut self, ctx: &egui::Context, a: Action) {
+        if !self.remote_allows(a) {
+            self.flash(ctx, "Not allowed for remote control at this level");
+            return;
+        }
         self.menu = None;
         let remote_here = crate::vfs::is_remote(&self.act().dir);
         let local_only = matches!(
@@ -516,7 +540,16 @@ impl App {
             return;
         }
         match a {
-            Action::Help => self.dialog = Some(Dialog::Help),
+            Action::Help => self.dialog = Some(Dialog::Help { page: 0 }),
+            Action::CheckUpdates => {
+                if crate::update::busy() {
+                    self.flash(ctx, "An update check or installation is already running");
+                } else {
+                    self.manual_check = true;
+                    self.flash(ctx, "Checking for updates…");
+                    crate::update::check_async();
+                }
+            }
             Action::UserMenu => self.menu = Some(MenuState { top: 0, sel: 0, user: true }),
             Action::Menu => self.menu = Some(MenuState { top: if self.active == 0 { 0 } else { 3 }, sel: 0, user: false }),
             Action::View => {
@@ -1208,11 +1241,16 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        crate::control::cleanup();
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.char_w = ctx.fonts(|f| f.glyph_width(&FontId::monospace(self.settings.font_size), 'M'));
         self.refresh_theme(ctx);
         self.handle_screenshot(ctx);
         self.poll_native_menu(ctx);
+        self.remote_poll(ctx);
 
         // Closing the window saves the setup too.
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit_asked && self.screenshot.is_none() && self.settings.auto_save {
@@ -1236,6 +1274,16 @@ impl eframe::App for App {
             if matches!(crate::update::state(), crate::update::State::Idle | crate::update::State::UpToDate) {
                 crate::update::check_async();
             }
+        }
+        if self.manual_check && !crate::update::busy() {
+            self.manual_check = false;
+            use crate::update::State;
+            let msg = match crate::update::state() {
+                State::UpToDate => format!("myCommander {} is up to date", env!("CARGO_PKG_VERSION")),
+                State::Available { version, .. } => format!("Version {version} is available – click Update in the toolbar"),
+                _ => "Could not check for updates (offline?)".to_string(),
+            };
+            self.flash(ctx, msg);
         }
         ctx.request_repaint_after(std::time::Duration::from_secs(60));
         if crate::update::busy() {

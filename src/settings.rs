@@ -19,6 +19,36 @@ pub enum ThemeChoice {
     Dark,
 }
 
+/// How much an AI agent may do through the MCP interface (REM-1). Each level includes the ones below.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum McpLevel {
+    #[default]
+    Off,
+    Read,
+    Control,
+    Full,
+}
+
+impl McpLevel {
+    pub const ALL: [McpLevel; 4] = [McpLevel::Off, McpLevel::Read, McpLevel::Control, McpLevel::Full];
+    pub fn label(self) -> &'static str {
+        match self {
+            McpLevel::Off => "Off",
+            McpLevel::Read => "Read only – look at folders, files and the window",
+            McpLevel::Control => "Control – also navigate, select, press keys",
+            McpLevel::Full => "Full – also copy, move, delete, run commands",
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            McpLevel::Off => "off",
+            McpLevel::Read => "read",
+            McpLevel::Control => "control",
+            McpLevel::Full => "full",
+        }
+    }
+}
+
 /// Direction of a notched mouse wheel (PNL-15).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WheelDir {
@@ -67,6 +97,10 @@ pub struct Settings {
     pub dir_sizes: bool,
     /// Direction of a notched mouse wheel (PNL-15). Trackpads are not affected.
     pub wheel_dir: WheelDir,
+    /// What agents may do through the MCP interface (REM-1).
+    pub mcp_level: McpLevel,
+    /// File changes by agents need an approval in the app (REM-1).
+    pub mcp_ask: bool,
     /// List Time Machine volumes in Places (PNL-16).
     pub show_timemachine: bool,
     /// Look for a new release at startup (SPEC §12).
@@ -113,6 +147,8 @@ impl Default for Settings {
             mix_all_files: false,
             dir_sizes: true,
             wheel_dir: WheelDir::Down,
+            mcp_level: McpLevel::Off,
+            mcp_ask: true,
             show_timemachine: false,
             check_updates: true,
             confirm_delete: true,
@@ -134,6 +170,10 @@ impl Default for Settings {
 }
 
 pub fn config_dir() -> PathBuf {
+    // Test aid (REM-2): a separate configuration folder, so tests never touch the real settings.
+    if let Some(d) = std::env::var_os("MYCMD_CONFIG_DIR") {
+        return PathBuf::from(d);
+    }
     crate::fsutil::home_dir().join("Library/Application Support/myCommander")
 }
 

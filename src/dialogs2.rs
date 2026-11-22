@@ -380,7 +380,14 @@ impl App {
                     })
                     .unwrap_or(false);
                 let changed = serde_json::to_string(&*s).unwrap_or_default() != before;
-                if done || enter || esc {
+                let open_help = ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new("open_mcp_help"))).unwrap_or(false);
+                if open_help {
+                    let applied = *s;
+                    then = Some(Box::new(move |app, ctx| {
+                        app.apply_settings(ctx, applied);
+                        app.dialog = Some(Dialog::Help { page: 2 });
+                    }));
+                } else if done || enter || esc {
                     if changed {
                         then = Some(Box::new(move |app, ctx| app.apply_settings(ctx, *s)));
                     }
@@ -538,6 +545,22 @@ fn options_page(ui: &mut egui::Ui, page: OptPage, s: &mut Settings) {
             ui.checkbox(&mut s.confirm_overwrite, "Overwriting files");
             ui.checkbox(&mut s.confirm_execute, "Running programs");
             ui.checkbox(&mut s.confirm_exit, "Quitting");
+            heading(ui, "Remote control (AI agents)");
+            hint(ui, "Lets an AI agent such as Claude look at and use myCommander through MCP. Off unless you choose a level.");
+            egui::ComboBox::from_id_salt("mcp_level").selected_text(s.mcp_level.label()).width(380.0).show_ui(ui, |ui| {
+                for l in crate::settings::McpLevel::ALL {
+                    ui.selectable_value(&mut s.mcp_level, l, l.label());
+                }
+            });
+            ui.add_enabled_ui(s.mcp_level >= crate::settings::McpLevel::Full, |ui| {
+                ui.checkbox(&mut s.mcp_ask, "Ask me before an agent changes files");
+            });
+            if s.mcp_level == crate::settings::McpLevel::Full && !s.mcp_ask {
+                ui.label(egui::RichText::new("Agents can now delete and overwrite files without asking.").color(egui::Color32::from_rgb(200, 60, 40)).size(12.0));
+            }
+            if ui.button("How to connect an agent…").clicked() {
+                ui.data_mut(|d| d.insert_temp(egui::Id::new("open_mcp_help"), true));
+            }
         }
         OptPage::Panels => {
             heading(ui, "Listing");

@@ -45,7 +45,11 @@ impl NativeMenu {
             Some("About myCommander"),
             Some(AboutMetadata {
                 name: Some("myCommander".into()),
-                version: Some("0.3".into()),
+                version: Some(env!("CARGO_PKG_VERSION").into()),
+                authors: Some(vec!["Kay Mühlena".into()]),
+                copyright: Some("© Kay Mühlena".into()),
+                website: Some("https://github.com/say-kaj/MyCommander".into()),
+                website_label: Some("github.com/say-kaj/MyCommander".into()),
                 comments: Some("A two-panel file manager for macOS, organised like Midnight Commander.".into()),
                 ..Default::default()
             }),
@@ -90,7 +94,8 @@ impl NativeMenu {
             menu.append(&sub).ok()?;
         }
         let help = make("myCommander Help\tF1", Action::Help, true);
-        let help_menu = Submenu::with_items("Help", true, &[&help]).ok()?;
+        let check = make("Check for Updates…", Action::CheckUpdates, true);
+        let help_menu = Submenu::with_items("Help", true, &[&help, &PredefinedMenuItem::separator(), &check]).ok()?;
         menu.append(&help_menu).ok()?;
         menu.init_for_nsapp();
         Some(NativeMenu { _menu: menu, ids })

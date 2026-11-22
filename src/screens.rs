@@ -581,6 +581,15 @@ impl App {
                 self.dialog = Some(crate::app::Dialog::Options { page, s: Box::new(self.settings.clone()) });
             }
         }
+        if self.frame == 80 {
+            // Test aids: MYCMD_SHOT_HELP=<0..2> opens that Help page, MYCMD_SHOT_ABOUT=1 the About box.
+            if let Some(i) = std::env::var("MYCMD_SHOT_HELP").ok().and_then(|v| v.parse::<usize>().ok()) {
+                self.dialog = Some(crate::app::Dialog::Help { page: i.min(2) });
+            }
+            if std::env::var("MYCMD_SHOT_ABOUT").is_ok() {
+                self.dialog = Some(crate::app::Dialog::About);
+            }
+        }
         if self.frame == 80 && std::env::var("MYCMD_SHOT_PLACES").is_ok() {
             // Test aid: MYCMD_SHOT_PLACES=1 opens the Places dialog for the picture.
             self.do_action(ctx, crate::app::Action::Hotlist);

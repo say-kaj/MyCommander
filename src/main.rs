@@ -6,7 +6,9 @@ mod native_menu;
 mod dialogs;
 mod dialogs2;
 mod dirsize;
+mod control;
 mod mounts;
+mod remote;
 mod menus;
 mod fsutil;
 mod ops;
@@ -41,6 +43,12 @@ fn main() -> eframe::Result<()> {
             }
             "-h" | "--help" => {
                 println!("myCommander [left] [right] [--screenshot file.png]   (folders, or sftp://host/path, ftp://host/path)");
+                println!("myCommander --mcp   MCP server on stdio for AI agents (see Help > Remote control)");
+                return Ok(());
+            }
+            "--mcp" => {
+                // MCP server on stdio for AI agents (SPEC REM-3); the GUI is not started.
+                control::run_mcp();
                 return Ok(());
             }
             "-V" | "--version" => {

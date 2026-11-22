@@ -49,6 +49,20 @@ Settings are stored in `~/Library/Application Support/myCommander/`.
 
 To build the `.app` bundle and release zip: `scripts/package.sh` (icon: `scripts/make_icon.py`).
 
+## Use it with AI agents (MCP)
+
+myCommander can be driven by AI agents – Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI and others – through the
+Model Context Protocol. The agent works in the same two panels you see. It is **off by default**: turn it on in
+**Settings ▸ General ▸ Remote control** and pick a level (read only, control, or full – with an Allow/Deny question before
+every file change). Then register the app with your agent, for example in Claude Code:
+
+```sh
+claude mcp add mycommander -- /Applications/myCommander.app/Contents/MacOS/myCommander --mcp
+```
+
+The in-app help (**F1 ▸ Remote control**) and [`docs/MCP.md`](docs/MCP.md) explain every step for each agent, the tools, and the
+safety model.
+
 ## Contributing
 
 Humans and coding agents: read [`docs/SPEC.md`](docs/SPEC.md) and [`AGENTS.md`](AGENTS.md) first.

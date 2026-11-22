@@ -438,7 +438,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("F2", "User menu (Finder, Terminal, Quick Look, zip)"),
     ("F9", "Pull-down menu"),
     ("Alt-?, Cmd-F", "Find file"),
-    ("Ctrl-\\, Cmd-D", "Directory hotlist"),
+    ("Ctrl-\\, Cmd-D", "Places: volumes, servers, favorites (Cmd-E ejects)"),
     ("Enter on a command", "Run the typed shell command in this folder"),
     ("Ctrl-O", "Show the output of the last command"),
     ("Alt-Enter", "Put the file name on the command line"),

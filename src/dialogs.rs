@@ -582,30 +582,119 @@ impl App {
                     keep = Some(Dialog::Hotlist { cursor, mounts, hosts });
                 }
             }
-            Dialog::Help => {
+            Dialog::Help { mut page } => {
+                const PAGES: [&str; 3] = ["Welcome", "Keys", "Remote control"];
+                if take(ctx, Key::ArrowRight, NONE) && page + 1 < PAGES.len() {
+                    page += 1;
+                }
+                if take(ctx, Key::ArrowLeft, NONE) {
+                    page = page.saturating_sub(1);
+                }
+                let level = self.settings.mcp_level;
+                let (mut copy_cmd, mut copy_json, mut open_settings) = (false, false, false);
                 let ok = self
                     .dialog_window(ctx, "Help", false, |ui| {
-                        ui.set_min_width(580.0);
-                        egui::ScrollArea::vertical().max_height(460.0).show(ui, |ui| {
-                            egui::Grid::new("help").num_columns(2).spacing([24.0, 3.0]).show(ui, |ui| {
-                                for (k, v) in HELP {
-                                    if k.is_empty() {
-                                        ui.label(egui::RichText::new(*v).strong().color(self.pal.accent));
-                                        ui.label("");
-                                    } else {
-                                        ui.label(egui::RichText::new(*k).monospace());
-                                        ui.label(*v);
-                                    }
-                                    ui.end_row();
+                        ui.set_width(680.0);
+                        ui.horizontal(|ui| {
+                            for (i, t) in PAGES.iter().enumerate() {
+                                if ui.selectable_label(page == i, egui::RichText::new(*t).strong()).clicked() {
+                                    page = i;
+                                }
+                            }
+                        });
+                        ui.separator();
+                        if page == 2 {
+                            let running = crate::control::server_running();
+                            let status = if level == crate::settings::McpLevel::Off {
+                                "Remote control is OFF. Choose a level in Settings ▸ General ▸ Remote control.".to_string()
+                            } else if running {
+                                format!("Remote control is ON – level \"{}\". Socket: {}", level.name(), crate::control::socket_path().display())
+                            } else {
+                                format!("Remote control level \"{}\" – starting …", level.name())
+                            };
+                            ui.label(egui::RichText::new(status).strong().color(if level == crate::settings::McpLevel::Off { self.pal.danger } else { self.pal.accent }));
+                            ui.horizontal(|ui| {
+                                if ui.button("Copy command for Claude Code").clicked() {
+                                    copy_cmd = true;
+                                }
+                                if ui.button("Copy JSON configuration").clicked() {
+                                    copy_json = true;
+                                }
+                                if ui.button("Open Settings").clicked() {
+                                    open_settings = true;
                                 }
                             });
+                            ui.add_space(4.0);
+                        }
+                        // A fixed-size box: wide content (code, tables) is clipped and never widens the window.
+                        let (area_rect, _) = ui.allocate_exact_size(egui::vec2(680.0, 430.0), Sense::hover());
+                        let mut area_ui = ui.new_child(egui::UiBuilder::new().max_rect(area_rect));
+                        area_ui.set_clip_rect(area_rect.intersect(ui.clip_rect()));
+                        egui::ScrollArea::vertical().max_height(430.0).auto_shrink([false, false]).show(&mut area_ui, |ui| match page {
+                            0 => {
+                                egui_commonmark::CommonMarkViewer::new().show(ui, &mut self.help_cache.borrow_mut(), crate::control::help_welcome());
+                            }
+                            1 => {
+                                egui::Grid::new("help").num_columns(2).spacing([24.0, 3.0]).show(ui, |ui| {
+                                    for (k, v) in HELP {
+                                        if k.is_empty() {
+                                            ui.label(egui::RichText::new(*v).strong().color(self.pal.accent));
+                                            ui.label("");
+                                        } else {
+                                            ui.label(egui::RichText::new(*k).monospace());
+                                            ui.label(*v);
+                                        }
+                                        ui.end_row();
+                                    }
+                                });
+                            }
+                            _ => {
+                                egui_commonmark::CommonMarkViewer::new().show(ui, &mut self.help_cache.borrow_mut(), &crate::control::mcp_help_text());
+                            }
                         });
                         ui.add_space(6.0);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| primary_button(ui, &self.pal, "Done").clicked()).inner
                     })
                     .unwrap_or(false);
-                if !(ok || esc || enter) {
-                    keep = Some(Dialog::Help);
+                if copy_cmd {
+                    ctx.copy_text(crate::control::claude_code_command());
+                    self.flash(ctx, "Command copied – paste it into a terminal");
+                }
+                if copy_json {
+                    ctx.copy_text(crate::control::json_config());
+                    self.flash(ctx, "JSON configuration copied");
+                }
+                if open_settings {
+                    then = Some(Box::new(|app, _| app.dialog = Some(Dialog::Options { page: crate::app::OptPage::General, s: Box::new(app.settings.clone()) })));
+                } else if !(ok || esc || enter) {
+                    keep = Some(Dialog::Help { page });
+                }
+            }
+            Dialog::RemoteAsk { id, title, lines } => {
+                let mut allow = enter;
+                let mut deny = esc;
+                self.dialog_window(ctx, &title, true, |ui| {
+                    ui.set_min_width(520.0);
+                    ui.label(egui::RichText::new("An AI agent connected through remote control asks for your permission:").weak());
+                    ui.add_space(6.0);
+                    for l in &lines {
+                        ui.label(egui::RichText::new(l).monospace());
+                    }
+                    ui.add_space(10.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if primary_button(ui, &self.pal, "Allow").clicked() {
+                            allow = true;
+                        }
+                        if ui.button("Deny").clicked() {
+                            deny = true;
+                        }
+                    });
+                });
+                if allow || deny {
+                    let ok = allow && !deny;
+                    then = Some(Box::new(move |app, ctx| app.remote_decide(ctx, id, ok)));
+                } else {
+                    keep = Some(Dialog::RemoteAsk { id, title, lines });
                 }
             }
             Dialog::About => {
@@ -616,7 +705,11 @@ impl App {
                             ui.label("A native two-panel file manager for macOS");
                             ui.label("in the spirit of the classic orthodox file managers.");
                             ui.add_space(6.0);
-                            ui.label("Version 0.1");
+                            ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                            ui.add_space(8.0);
+                            ui.label("Made by Kay Mühlena");
+                            ui.hyperlink_to("github.com/say-kaj/MyCommander", "https://github.com/say-kaj/MyCommander");
+                            ui.label(egui::RichText::new("Free software – bug reports and ideas are welcome on GitHub.").weak().size(12.0));
                             ui.add_space(10.0);
                             primary_button(ui, &self.pal, "OK").clicked()
                         })
