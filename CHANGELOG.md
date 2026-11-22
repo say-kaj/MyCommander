@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.4.0
+- **LCARS look (SPEC §15).** A button right of *Settings* switches the whole app to an LCARS interface built from the author's LCARS design system: elbows, colour segments with a 5 px gutter, the ten function keys as a side column, command line and status bar in the footer, panels with header bands, accent-pill cursor and dot markers, the Antonio typeface, LCARS dialogs. Four palettes (TNG, Nemesis, Picard, Red alert) in Settings ▸ Appearance; **CLASSIC** switches back. The choice is saved. The LCARS look hides the macOS window buttons and draws its own as square segments in the header bar (minimise, maximise, close; LCR-9).
+
 ## 1.3.0
 - **Remote control for AI agents (MCP, SPEC §14).** Settings ▸ General ▸ Remote control (off by default; levels Read only / Control / Full) lets agents such as Claude Code, Claude Desktop, Cursor, VS Code, Codex or Gemini CLI look at and use the running app through `myCommander --mcp`: 21 tools (state, listings, search, screenshots, navigation, marking, keys, menu items, copy/move/delete/rename/mkdir, shell). File changes show an Allow/Deny question first; below *Full* everything that changes files is refused; agents can never open Settings or answer the question themselves.
 - **Help rebuilt:** pages *Welcome*, *Keys* and *Remote control* with a step-by-step setup for Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI, Windsurf and others, copy buttons for the command and JSON, and a live status. The same texts live in `docs/HELP.md` and `docs/MCP.md`.

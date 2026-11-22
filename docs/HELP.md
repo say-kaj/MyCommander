@@ -13,6 +13,7 @@ It looks like a Mac app, but it works like the orthodox file managers you may kn
 - **Cmd-D (Places)** jumps anywhere: all mounted disks and network shares (with free space and *Eject*), your SSH servers and your favorite folders.
 - **Type a command** at the bottom and press Enter: it runs in the active panel's folder. **Ctrl-O** shows its output.
 - **F9** opens the menu bar, **Cmd-,** opens Settings, **F1** this help.
+- **LCARS look.** The button **LCARS** right of *Settings* switches the whole app to an LCARS interface (elbows, colour segments, the function keys as a side column); **CLASSIC** in the same place switches back. Four colour themes under Settings ▸ Appearance.
 
 ## Good to know
 

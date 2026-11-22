@@ -52,6 +52,8 @@ pub enum Action {
     Hotlist,
     HotlistAdd,
     CheckUpdates,
+    /// Classic ⇄ LCARS look (LCR-1).
+    ToggleLook,
     CycleListing,
     ListingDialog(usize),
     SortDialog(usize),
@@ -203,12 +205,29 @@ pub struct App {
     pub remote: crate::remote::RemoteState,
     /// Markdown render cache of the Help pages.
     pub help_cache: std::cell::RefCell<egui_commonmark::CommonMarkCache>,
+    /// The LCARS palette the style was last built for (LCR-1).
+    pub lcars_theme_applied: crate::settings::LcarsTheme,
+    /// The macOS window buttons are hidden (LCARS look).
+    pub lights_hidden: bool,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext, screenshot: Option<PathBuf>, start_dirs: Vec<PathBuf>) -> Self {
-        install_fonts(&cc.egui_ctx);
-        let settings = if screenshot.is_some() { Settings::default() } else { Settings::load() };
+        let mut settings = if screenshot.is_some() { Settings::default() } else { Settings::load() };
+        // Test aids for pictures: MYCMD_LOOK=lcars, MYCMD_LCARS_THEME=tng|nemesis|picard|red-alert.
+        if screenshot.is_some() {
+            if std::env::var("MYCMD_LOOK").map(|v| v == "lcars").unwrap_or(false) {
+                settings.look = crate::settings::Look::Lcars;
+            }
+            settings.lcars_theme = match std::env::var("MYCMD_LCARS_THEME").unwrap_or_default().as_str() {
+                "nemesis" => crate::settings::LcarsTheme::Nemesis,
+                "picard" => crate::settings::LcarsTheme::Picard,
+                "red-alert" => crate::settings::LcarsTheme::RedAlert,
+                _ => crate::settings::LcarsTheme::Tng,
+            };
+        }
+        let lcars_on = settings.look == crate::settings::Look::Lcars;
+        install_fonts(&cc.egui_ctx, lcars_on);
         let home = fsutil::home_dir();
         let pick = |setup: &Option<PanelSetup>, arg: Option<&PathBuf>, fallback: PathBuf| -> (PathBuf, Option<PanelSetup>) {
             if let Some(a) = arg {
@@ -237,12 +256,21 @@ impl App {
         };
         let left = make(ld, ls);
         let right = make(rd, rs);
-        let pal = if cc.egui_ctx.system_theme() == Some(egui::Theme::Dark) { crate::theme::DARK } else { crate::theme::LIGHT };
+        let pal = if lcars_on {
+            crate::theme::lcars_pal(settings.lcars_theme)
+        } else if cc.egui_ctx.system_theme() == Some(egui::Theme::Dark) {
+            crate::theme::DARK
+        } else {
+            crate::theme::LIGHT
+        };
+        crate::theme::set_current(pal);
         let mut style = (*cc.egui_ctx.style()).clone();
         apply_style(&mut style, settings.font_size, &pal);
-        cc.egui_ctx.set_style(style);
+        cc.egui_ctx.set_style_of(egui::Theme::Dark, style.clone());
+        cc.egui_ctx.set_style_of(egui::Theme::Light, style);
         cc.egui_ctx.data_mut(|d| d.insert_temp(egui::Id::new("pal_dark"), pal.dark));
         let native_menu = if screenshot.is_none() { crate::native_menu::NativeMenu::install() } else { None };
+        let settings_lcars_theme = settings.lcars_theme;
         App {
             panels: [left, right],
             active: 0,
@@ -272,11 +300,30 @@ impl App {
             menu_x: [12.0, 70.0, 130.0, 220.0],
             remote: Default::default(),
             help_cache: Default::default(),
+            lcars_theme_applied: settings_lcars_theme,
+            lights_hidden: false,
         }
     }
 
     /// Follow the system's light / dark appearance.
     pub fn refresh_theme(&mut self, ctx: &egui::Context) {
+        if self.settings.look == crate::settings::Look::Lcars {
+            if !self.pal.lcars || self.lcars_theme_applied != self.settings.lcars_theme {
+                if !self.pal.lcars {
+                    install_fonts(ctx, true);
+                }
+                self.lcars_theme_applied = self.settings.lcars_theme;
+                self.pal = crate::theme::lcars_pal(self.settings.lcars_theme);
+                self.restyle(ctx);
+            }
+            return;
+        }
+        if self.pal.lcars {
+            install_fonts(ctx, false);
+            self.pal = if ctx.system_theme() == Some(egui::Theme::Dark) { crate::theme::DARK } else { crate::theme::LIGHT };
+            self.restyle(ctx);
+            return;
+        }
         let dark = match self.settings.theme {
             crate::settings::ThemeChoice::System => ctx.system_theme() == Some(egui::Theme::Dark),
             crate::settings::ThemeChoice::Light => false,
@@ -291,7 +338,10 @@ impl App {
     pub fn restyle(&mut self, ctx: &egui::Context) {
         let mut style = (*ctx.style()).clone();
         apply_style(&mut style, self.settings.font_size, &self.pal);
-        ctx.set_style(style);
+        // egui keeps one style per system theme; the look decides, not the system.
+        ctx.set_style_of(egui::Theme::Dark, style.clone());
+        ctx.set_style_of(egui::Theme::Light, style);
+        crate::theme::set_current(self.pal);
         ctx.data_mut(|d| d.insert_temp(egui::Id::new("pal_dark"), self.pal.dark));
     }
 
@@ -541,6 +591,14 @@ impl App {
         }
         match a {
             Action::Help => self.dialog = Some(Dialog::Help { page: 0 }),
+            Action::ToggleLook => {
+                use crate::settings::Look;
+                self.settings.look = if self.settings.look == Look::Lcars { Look::Classic } else { Look::Lcars };
+                self.refresh_theme(ctx);
+                if self.screenshot.is_none() {
+                    let _ = self.settings.save();
+                }
+            }
             Action::CheckUpdates => {
                 if crate::update::busy() {
                     self.flash(ctx, "An update check or installation is already running");
@@ -1245,9 +1303,15 @@ impl eframe::App for App {
         crate::control::cleanup();
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.char_w = ctx.fonts(|f| f.glyph_width(&FontId::monospace(self.settings.font_size), 'M'));
         self.refresh_theme(ctx);
+        // The LCARS look has its own window buttons; hide the macOS ones (LCR-9).
+        let want_hidden = self.settings.look == crate::settings::Look::Lcars && self.screenshot.is_none();
+        if want_hidden != self.lights_hidden {
+            self.lights_hidden = want_hidden;
+            crate::lcars::set_traffic_lights_hidden(frame, want_hidden);
+        }
         self.handle_screenshot(ctx);
         self.poll_native_menu(ctx);
         self.remote_poll(ctx);
@@ -1319,27 +1383,35 @@ impl eframe::App for App {
         }
 
         let mut menubar_bottom = 0.0;
-        if self.settings.show_toolbar {
-            menubar_bottom += self.draw_toolbar(ctx);
-        }
-        if self.settings.show_menubar || !self.settings.show_toolbar {
-            menubar_bottom = self.draw_menubar(ctx, menubar_bottom);
-        }
-        let labels: Vec<(&str, Option<u8>)> = vec![
-            ("Help", Some(1)),
-            ("Menu", Some(2)),
-            ("View", Some(3)),
-            ("Edit", Some(4)),
-            ("Copy", Some(5)),
-            ("RenMov", Some(6)),
-            ("Mkdir", Some(7)),
-            ("Delete", Some(8)),
-            ("PullDn", Some(9)),
-            ("Quit", Some(10)),
-        ];
-        let hit = if self.settings.show_keybar { crate::ui_main::draw_bar(ctx, "buttonbar", self.settings.font_size, &self.pal, &labels) } else { None };
-        if self.settings.show_cmdline {
-            self.draw_cmdline(ctx);
+        let hit;
+        if self.settings.look == crate::settings::Look::Lcars {
+            // LCARS look (SPEC §15): header, footer and the function keys as a side column.
+            let (h, bottom) = self.draw_lcars_chrome(ctx);
+            hit = h.map(|n| n);
+            menubar_bottom = bottom;
+        } else {
+            if self.settings.show_toolbar {
+                menubar_bottom += self.draw_toolbar(ctx);
+            }
+            if self.settings.show_menubar || !self.settings.show_toolbar {
+                menubar_bottom = self.draw_menubar(ctx, menubar_bottom);
+            }
+            let labels: Vec<(&str, Option<u8>)> = vec![
+                ("Help", Some(1)),
+                ("Menu", Some(2)),
+                ("View", Some(3)),
+                ("Edit", Some(4)),
+                ("Copy", Some(5)),
+                ("RenMov", Some(6)),
+                ("Mkdir", Some(7)),
+                ("Delete", Some(8)),
+                ("PullDn", Some(9)),
+                ("Quit", Some(10)),
+            ];
+            hit = if self.settings.show_keybar { crate::ui_main::draw_bar(ctx, "buttonbar", self.settings.font_size, &self.pal, &labels) } else { None };
+            if self.settings.show_cmdline {
+                self.draw_cmdline(ctx);
+            }
         }
         self.draw_panels(ctx);
         self.draw_toast(ctx);

@@ -8,7 +8,7 @@ use crate::fsutil::{self, Kind};
 use crate::panel::PanelView;
 use crate::theme::*;
 use crate::util::*;
-use egui::{Align2, FontId, Key, Pos2, Rect, Sense, Stroke, Vec2};
+use egui::{Align2, Color32, FontId, Key, Pos2, Rect, Sense, Stroke, Vec2};
 
 /// F2 user menu: myCommander's built-in entries, then the lines of the menu file
 /// (Command > Edit menu file).
@@ -179,6 +179,7 @@ impl App {
         let height = if as_titlebar { 40.0 } else { 30.0 };
         let mut clicked: Option<usize> = None;
         let mut settings_click = false;
+        let mut look_click = false;
         let fs = self.settings.font_size;
         egui::TopBottomPanel::top("mc_menubar")
             .exact_height(height)
@@ -221,6 +222,24 @@ impl App {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(12.0);
+                        // The look switch sits right of Settings (LCR-1): three little bars and the word.
+                        {
+                            let g = ui.painter().layout_no_wrap("LCARS".to_string(), FontId::proportional(fs), pal.text);
+                            let (r, resp) = ui.allocate_exact_size(Vec2::new(g.size().x + 20.0 + 34.0, 22.0), Sense::click());
+                            if resp.hovered() {
+                                ui.painter().rect_filled(r, 5.0, pal.control_hover);
+                            }
+                            let mut x = r.left() + 10.0;
+                            for (w, c) in [(14.0, Color32::from_rgb(255, 153, 0)), (8.0, Color32::from_rgb(204, 153, 204)), (5.0, Color32::from_rgb(153, 153, 255))] {
+                                ui.painter().rect_filled(Rect::from_min_size(Pos2::new(x, r.center().y - 4.0), Vec2::new(w, 8.0)), 4.0, c);
+                                x += w + 2.0;
+                            }
+                            ui.painter().galley(Pos2::new(r.right() - g.size().x - 10.0, r.center().y - g.size().y / 2.0), g, pal.text);
+                            if resp.on_hover_text("Switch to the LCARS look").clicked() {
+                                look_click = true;
+                            }
+                            ui.add_space(2.0);
+                        }
                         let g = ui.painter().layout_no_wrap("Settings".to_string(), FontId::proportional(fs), pal.text);
                         let (r, resp) = ui.allocate_exact_size(Vec2::new(g.size().x + 20.0, 22.0), Sense::click());
                         if resp.hovered() {
@@ -239,6 +258,10 @@ impl App {
         if settings_click {
             self.menu = None;
             self.do_action(ctx, Action::Config);
+        }
+        if look_click {
+            self.menu = None;
+            self.do_action(ctx, Action::ToggleLook);
         }
         if let Some(i) = clicked {
             let same = self.menu.as_ref().map(|m| !m.user && m.top == i).unwrap_or(false);
@@ -429,7 +452,8 @@ impl App {
 
     pub fn draw_panels(&mut self, ctx: &egui::Context) {
         let pal = self.pal;
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(pal.window).inner_margin(egui::Margin::symmetric(10, 8))).show(ctx, |ui| {
+        let margin = if pal.lcars { egui::Margin { left: 12, right: 8, top: 5, bottom: 5 } } else { egui::Margin::symmetric(10, 8) };
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(pal.window).inner_margin(margin)).show(ctx, |ui| {
             let full = ui.max_rect();
             let gap = 10.0;
             let rects = if self.settings.horizontal_split {
@@ -460,6 +484,11 @@ impl App {
     pub fn card(&self, ui: &egui::Ui, rect: Rect, active: bool) {
         let pal = self.pal;
         let p = ui.painter();
+        if pal.lcars {
+            // LCARS look: a flat black field, no card, no shadow, no ring (LCR-5).
+            p.rect_filled(rect, 0.0, pal.card);
+            return;
+        }
         p.add(egui::epaint::Shadow { offset: [0, 1], blur: 6, spread: 0, color: pal.shadow.gamma_multiply(0.35) }.as_shape(rect, 10));
         p.rect_filled(rect, 10.0, pal.card);
         p.rect_stroke(rect, 10.0, Stroke::new(0.5_f32, pal.control_border), egui::StrokeKind::Inside);

@@ -484,13 +484,13 @@ impl App {
                     ui.label(format!("File \"{}\" was modified.\nSave before close?", name));
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Yes").clicked() {
+                        if crate::util::lbutton(ui, "Yes").clicked() {
                             choice = 1;
                         }
-                        if ui.button("No").clicked() {
+                        if crate::util::lbutton(ui, "No").clicked() {
                             choice = 2;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if crate::util::lbutton(ui, "Cancel").clicked() {
                             choice = 3;
                         }
                     });

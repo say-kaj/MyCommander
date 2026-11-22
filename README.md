@@ -49,6 +49,11 @@ Settings are stored in `~/Library/Application Support/myCommander/`.
 
 To build the `.app` bundle and release zip: `scripts/package.sh` (icon: `scripts/make_icon.py`).
 
+## LCARS look
+
+The button **LCARS** next to *Settings* turns myCommander into an LCARS interface (Antonio typeface, elbows and colour segments from the
+author's LCARS design system); **CLASSIC** in the same place switches back. Four palettes under Settings ▸ Appearance. See SPEC §15.
+
 ## Use it with AI agents (MCP)
 
 myCommander can be driven by AI agents – Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI and others – through the

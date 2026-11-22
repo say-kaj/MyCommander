@@ -192,6 +192,15 @@ pub fn unquote(s: &str) -> String {
 
 /// A macOS default button: filled with the accent colour, white text.
 pub fn primary_button(ui: &mut egui::Ui, pal: &Pal, text: &str) -> egui::Response {
+    if pal.lcars {
+        return ui.add(
+            egui::Button::new(egui::RichText::new(text.to_uppercase()).color(pal.on_fill).size(17.0))
+                .fill(pal.tones[0])
+                .stroke(Stroke::NONE)
+                .corner_radius(15.0_f32)
+                .min_size(Vec2::new(96.0, 30.0)),
+        );
+    }
     ui.add(
         egui::Button::new(egui::RichText::new(text).color(pal.accent_text))
             .fill(pal.accent)
@@ -201,7 +210,21 @@ pub fn primary_button(ui: &mut egui::Ui, pal: &Pal, text: &str) -> egui::Respons
     )
 }
 
+/// `ui.button` that also looks right in the LCARS look (tone fill, dark uppercase text).
+pub fn lbutton(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
+    let pal = crate::theme::current();
+    let t: String = text.into();
+    if pal.lcars {
+        return ui.add(egui::Button::new(egui::RichText::new(t.trim().to_uppercase()).color(pal.on_fill).size(16.0)).corner_radius(14.0_f32).min_size(Vec2::new(64.0, 28.0)));
+    }
+    ui.button(t)
+}
+
 pub fn plain_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    if crate::theme::current().lcars {
+        let pal = crate::theme::current();
+        return ui.add(egui::Button::new(egui::RichText::new(text.to_uppercase()).color(pal.on_fill).size(17.0)).corner_radius(15.0_f32).min_size(Vec2::new(96.0, 30.0)));
+    }
     ui.add(egui::Button::new(text).corner_radius(6.0_f32).min_size(Vec2::new(78.0, 24.0)))
 }
 
@@ -211,7 +234,7 @@ pub fn ok_cancel(ui: &mut egui::Ui) -> (bool, bool) {
 }
 
 pub fn ok_cancel_labeled(ui: &mut egui::Ui, ok_label: &str) -> (bool, bool) {
-    let pal = ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new("pal_dark"))).map(|d| if d { DARK } else { LIGHT }).unwrap_or(LIGHT);
+    let pal = crate::theme::current();
     ui.add_space(4.0);
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let ok = primary_button(ui, &pal, ok_label).clicked();
@@ -265,6 +288,32 @@ pub fn apply_style(style: &mut egui::Style, fs: f32, pal: &Pal) {
     v.widgets.active.bg_stroke = Stroke::new(0.5_f32, pal.control_border);
     v.widgets.active.fg_stroke = Stroke::new(1.0_f32, pal.text);
     v.widgets.active.expansion = 0.0;
+    if pal.lcars {
+        // LCARS look (LCR-7): black ground, tone-filled controls with dark text, 2 px rule borders.
+        v.override_text_color = None;
+        v.window_fill = pal.window;
+        v.window_stroke = Stroke::new(2.0_f32, pal.control_border);
+        v.window_corner_radius = egui::CornerRadius::same(18);
+        v.window_shadow = egui::epaint::Shadow::NONE;
+        v.popup_shadow = egui::epaint::Shadow::NONE;
+        v.selection.bg_fill = pal.accent;
+        v.selection.stroke = Stroke::new(1.0_f32, pal.on_fill);
+        v.hyperlink_color = pal.tones[5];
+        v.text_cursor.stroke = Stroke::new(2.0_f32, pal.accent);
+        for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
+            w.corner_radius = egui::CornerRadius::same(14);
+            // Labels, radio buttons and list entries read in the ink colour; buttons colour their own text.
+            w.fg_stroke = Stroke::new(1.0_f32, pal.text);
+            w.bg_stroke = Stroke::NONE;
+        }
+        v.widgets.noninteractive.corner_radius = egui::CornerRadius::same(14);
+        v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, pal.text);
+        v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, pal.separator);
+        v.widgets.active.weak_bg_fill = pal.accent;
+        v.widgets.active.bg_fill = pal.accent;
+        v.widgets.open.weak_bg_fill = pal.control;
+        v.widgets.open.bg_fill = pal.control;
+    }
     style.visuals = v;
     style.spacing.button_padding = Vec2::new(12.0, 4.0);
     style.spacing.item_spacing = Vec2::new(8.0, 6.0);
@@ -273,7 +322,7 @@ pub fn apply_style(style: &mut egui::Style, fs: f32, pal: &Pal) {
 }
 
 /// Use the Mac's own fonts: San Francisco for the interface, SF Mono / Menlo for code.
-pub fn install_fonts(ctx: &egui::Context) {
+pub fn install_fonts(ctx: &egui::Context, lcars: bool) {
     use egui::{FontData, FontDefinitions, FontFamily};
     let mut fonts = FontDefinitions::default();
     let try_load = |path: &str, index: u32| -> Option<FontData> {
@@ -296,6 +345,16 @@ pub fn install_fonts(ctx: &egui::Context) {
             fonts.families.get_mut(&FontFamily::Proportional).unwrap().insert(0, "system".into());
             break;
         }
+    }
+    if lcars {
+        // LCARS look (LCR-6): Antonio first, the system font stays as fallback (emoji, symbols).
+        for (name, bytes) in [("antonio", &include_bytes!("../assets/fonts/Antonio-Regular.ttf")[..]), ("antonio-bold", &include_bytes!("../assets/fonts/Antonio-Bold.ttf")[..])] {
+            fonts.font_data.insert(name.into(), std::sync::Arc::new(FontData::from_static(bytes)));
+        }
+        fonts.families.get_mut(&FontFamily::Proportional).unwrap().insert(0, "antonio".into());
+        let mut bold: Vec<String> = vec!["antonio-bold".into()];
+        bold.extend(fonts.families[&FontFamily::Proportional].iter().cloned());
+        fonts.families.insert(FontFamily::Name("lcars-bold".into()), bold);
     }
     ctx.set_fonts(fonts);
 }
@@ -345,6 +404,19 @@ pub fn finder_size(e: &Entry) -> String {
 /// sheets with a coloured band for the file's type group.
 pub fn draw_file_icon(p: &egui::Painter, rect: egui::Rect, e: &Entry, pal: &Pal) {
     use egui::{pos2, Rect};
+    if pal.lcars {
+        // LCARS look (LCR-5): no pictograms – a filled dot for folders, a hollow ring for files.
+        let c = rect.center();
+        let rad = rect.height().min(rect.width()) * 0.2;
+        if e.is_dir_like() {
+            p.circle_filled(c, rad, if e.is_updir() { pal.tones[2] } else { pal.tones[1] });
+        } else if e.is_executable() {
+            p.circle_filled(c, rad, pal.tones[4]);
+        } else {
+            p.circle_stroke(c, rad, Stroke::new(2.0_f32, pal.tones[2]));
+        }
+        return;
+    }
     let h = fsutil::highlight(e);
     let s = rect.height().min(rect.width());
     let r = Rect::from_center_size(rect.center(), Vec2::splat(s));

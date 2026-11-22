@@ -35,12 +35,16 @@ impl App {
             .frame(
                 egui::Frame::window(&ctx.style())
                     .fill(pal.menu_bg)
-                    .stroke(Stroke::new(0.5_f32, pal.control_border))
-                    .corner_radius(12.0)
+                    .stroke(if pal.lcars { Stroke::new(2.0_f32, pal.control_border) } else { Stroke::new(0.5_f32, pal.control_border) })
+                    .corner_radius(if pal.lcars { 18.0 } else { 12.0 })
                     .inner_margin(egui::Margin::same(20)),
             )
             .show(ctx, |ui| {
                 ui.set_min_width(400.0);
+                if pal.lcars {
+                    self.lcars_dialog_title(ui, title, error);
+                    return add(ui);
+                }
                 ui.horizontal(|ui| {
                     if error {
                         let (r, _) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::hover());
@@ -409,16 +413,16 @@ impl App {
                         ui.label(format!("Searching {} ...", truncate_left(&current, 60)));
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("Chdir").clicked() {
+                        if crate::util::lbutton(ui, "Chdir").clicked() {
                             chosen = found.get(cursor).cloned();
                         }
-                        if !finished && ui.button("Stop").clicked() {
+                        if !finished && crate::util::lbutton(ui, "Stop").clicked() {
                             shared.lock().unwrap().cancel = true;
                         }
-                        if ui.button("Panelize").on_hover_text("Show these files in the panel").clicked() {
+                        if crate::util::lbutton(ui, "Panelize").on_hover_text("Show these files in the panel").clicked() {
                             panelize = true;
                         }
-                        if ui.button("Quit").clicked() {
+                        if crate::util::lbutton(ui, "Quit").clicked() {
                             close = true;
                         }
                     });
@@ -515,19 +519,19 @@ impl App {
                     });
                     ui.separator();
                     ui.horizontal(|ui| {
-                        if ui.button("Go").clicked() {
+                        if crate::util::lbutton(ui, "Go").clicked() {
                             go = items.get(cursor).cloned();
                         }
-                        if ui.button("Eject").on_hover_text("Unmount the selected volume (⌘E)").clicked() {
+                        if crate::util::lbutton(ui, "Eject").on_hover_text("Unmount the selected volume (⌘E)").clicked() {
                             eject = true;
                         }
-                        if ui.button("Add current").clicked() {
+                        if crate::util::lbutton(ui, "Add current").clicked() {
                             add = true;
                         }
-                        if ui.button("Remove").clicked() {
+                        if crate::util::lbutton(ui, "Remove").clicked() {
                             remove = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if crate::util::lbutton(ui, "Cancel").clicked() {
                             close = true;
                         }
                     });
@@ -597,7 +601,8 @@ impl App {
                         ui.set_width(680.0);
                         ui.horizontal(|ui| {
                             for (i, t) in PAGES.iter().enumerate() {
-                                if ui.selectable_label(page == i, egui::RichText::new(*t).strong()).clicked() {
+                                let label = egui::RichText::new(*t).strong().color(if self.pal.lcars && page == i { self.pal.on_fill } else { ui.visuals().text_color() });
+                                if ui.selectable_label(page == i, label).clicked() {
                                     page = i;
                                 }
                             }
@@ -614,13 +619,13 @@ impl App {
                             };
                             ui.label(egui::RichText::new(status).strong().color(if level == crate::settings::McpLevel::Off { self.pal.danger } else { self.pal.accent }));
                             ui.horizontal(|ui| {
-                                if ui.button("Copy command for Claude Code").clicked() {
+                                if crate::util::lbutton(ui, "Copy command for Claude Code").clicked() {
                                     copy_cmd = true;
                                 }
-                                if ui.button("Copy JSON configuration").clicked() {
+                                if crate::util::lbutton(ui, "Copy JSON configuration").clicked() {
                                     copy_json = true;
                                 }
-                                if ui.button("Open Settings").clicked() {
+                                if crate::util::lbutton(ui, "Open Settings").clicked() {
                                     open_settings = true;
                                 }
                             });
@@ -685,7 +690,7 @@ impl App {
                         if primary_button(ui, &self.pal, "Allow").clicked() {
                             allow = true;
                         }
-                        if ui.button("Deny").clicked() {
+                        if crate::util::lbutton(ui, "Deny").clicked() {
                             deny = true;
                         }
                     });
@@ -840,17 +845,17 @@ impl App {
                 ui.add_space(8.0);
                 ui.label("Overwrite this file?");
                 ui.horizontal(|ui| {
-                    if ui.button("Yes").clicked() {
+                    if crate::util::lbutton(ui, "Yes").clicked() {
                         answer = Some(Answer::Yes);
                     }
-                    if ui.button("No").clicked() {
+                    if crate::util::lbutton(ui, "No").clicked() {
                         answer = Some(Answer::No);
                     }
                 });
                 ui.label("Overwrite all files?");
                 ui.horizontal(|ui| {
                     for (t, a) in [("All", Answer::All), ("None", Answer::None), ("Skip", Answer::Skip), ("Abort", Answer::Abort)] {
-                        if ui.button(t).clicked() {
+                        if crate::util::lbutton(ui, t).clicked() {
                             answer = Some(a);
                         }
                     }
@@ -904,7 +909,7 @@ impl App {
             }
             ui.add_space(6.0);
             ui.vertical_centered(|ui| {
-                if ui.button("  Abort  ").clicked() {
+                if crate::util::lbutton(ui, "  Abort  ").clicked() {
                     abort = true;
                 }
             });

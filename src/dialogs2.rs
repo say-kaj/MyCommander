@@ -309,16 +309,16 @@ impl App {
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         if files {
-                            if ui.button("View").clicked() {
+                            if crate::util::lbutton(ui, "View").clicked() {
                                 pick = Some((cursor, false));
                             }
-                            if ui.button("Edit").clicked() {
+                            if crate::util::lbutton(ui, "Edit").clicked() {
                                 pick = Some((cursor, true));
                             }
-                        } else if ui.button("Use").clicked() {
+                        } else if crate::util::lbutton(ui, "Use").clicked() {
                             pick = Some((cursor, false));
                         }
-                        if ui.button("Cancel").clicked() {
+                        if crate::util::lbutton(ui, "Cancel").clicked() {
                             close = true;
                         }
                     });
@@ -354,7 +354,7 @@ impl App {
                         ui.horizontal_top(|ui| {
                             ui.vertical(|ui| {
                                 ui.set_width(124.0);
-                                ui.set_height(380.0);
+                                ui.set_height(if self.pal.lcars { 450.0 } else { 380.0 });
                                 for p in OptPage::ALL {
                                     let r = ui.add_sized([124.0, 28.0], egui::SelectableLabel::new(page == p, p.label()));
                                     if r.clicked() {
@@ -363,12 +363,12 @@ impl App {
                                 }
                             });
                             ui.add_space(6.0);
-                            let (sep, _) = ui.allocate_exact_size(egui::Vec2::new(1.0, 380.0), egui::Sense::hover());
+                            let (sep, _) = ui.allocate_exact_size(egui::Vec2::new(1.0, if self.pal.lcars { 450.0 } else { 380.0 }), egui::Sense::hover());
                             ui.painter().rect_filled(sep, 0.0, line);
                             ui.add_space(10.0);
                             ui.vertical(|ui| {
                                 ui.set_width(430.0);
-                                egui::ScrollArea::vertical().max_height(380.0).min_scrolled_height(380.0).auto_shrink([false, false]).show(ui, |ui| {
+                                egui::ScrollArea::vertical().max_height(if self.pal.lcars { 450.0 } else { 380.0 }).min_scrolled_height(if self.pal.lcars { 450.0 } else { 380.0 }).auto_shrink([false, false]).show(ui, |ui| {
                                     ui.set_width(414.0);
                                     ui.spacing_mut().item_spacing.y = 7.0;
                                     options_page(ui, page, &mut s);
@@ -558,7 +558,7 @@ fn options_page(ui: &mut egui::Ui, page: OptPage, s: &mut Settings) {
             if s.mcp_level == crate::settings::McpLevel::Full && !s.mcp_ask {
                 ui.label(egui::RichText::new("Agents can now delete and overwrite files without asking.").color(egui::Color32::from_rgb(200, 60, 40)).size(12.0));
             }
-            if ui.button("How to connect an agent…").clicked() {
+            if crate::util::lbutton(ui, "How to connect an agent…").clicked() {
                 ui.data_mut(|d| d.insert_temp(egui::Id::new("open_mcp_help"), true));
             }
         }
@@ -586,7 +586,20 @@ fn options_page(ui: &mut egui::Ui, page: OptPage, s: &mut Settings) {
             ui.checkbox(&mut s.lynx_motion, "Left goes up, Right opens (Lynx-style)");
         }
         OptPage::Appearance => {
-            heading(ui, "Theme");
+            heading(ui, "Look");
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut s.look, crate::settings::Look::Classic, "Classic");
+                ui.radio_value(&mut s.look, crate::settings::Look::Lcars, "LCARS");
+            });
+            ui.add_enabled_ui(s.look == crate::settings::Look::Lcars, |ui| {
+                egui::ComboBox::from_id_salt("lcars_theme").selected_text(s.lcars_theme.label()).width(300.0).show_ui(ui, |ui| {
+                    for t in crate::settings::LcarsTheme::ALL {
+                        ui.selectable_value(&mut s.lcars_theme, t, t.label());
+                    }
+                });
+            });
+            hint(ui, "The LCARS look has its own colours and the Antonio typeface. The button right of Settings switches at once.");
+            heading(ui, "Theme (Classic look)");
             ui.horizontal(|ui| {
                 ui.radio_value(&mut s.theme, ThemeChoice::System, "Follow macOS");
                 ui.radio_value(&mut s.theme, ThemeChoice::Light, "Light");

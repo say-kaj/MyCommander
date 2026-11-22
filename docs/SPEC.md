@@ -381,6 +381,7 @@ src/
   fsutil.rs       Directory reading, size/date/permission formatting, highlight classes
   update.rs       In-app update check and installer (UPD)
   mounts.rs       Mount table for Places (getmntinfo; PNL-16)
+  lcars.rs        The LCARS look: header, side column, footer, shapes (LCR)
   control.rs      Remote control: tool table, socket server, MCP stdio server (REM)
   remote.rs       App side of remote control: tool handlers on the UI thread (REM)
   dirsize.rs      Background folder sizes (getattrlistbulk worker pool, cache; PNL-12a)
@@ -485,3 +486,37 @@ works in the real panels, so the person sees everything it does.
   `{{BIN}}` in these files is replaced by the real path of the running binary, so every snippet is copy-ready.
   The Remote control page has buttons that copy the Claude Code command and the JSON configuration, and shows
   whether the socket is active. `get_help` returns the same texts to agents.
+
+## 15. LCARS look (LCR)
+
+A second, complete look for the whole app, taken from the author's LCARS design system (tokens, elbow,
+bar, segment and pill shapes, 5 px gutter, Antonio). The classic Finder-like look stays the default.
+
+- **LCR-1** Setting `look` (**Classic** default / **LCARS**). A button switches it at once, in both looks right of
+  *Settings*: **LCARS** in the classic menu bar, **CLASSIC** in the LCARS header. Also Settings ▸ Appearance ▸ Look.
+  The choice is saved. Setting `lcars_theme`: **TNG** (default, orange/lilac/blue), **Nemesis**, **Picard**,
+  **Red alert**; the palettes are the design system's `tone-1…6`, `accent`, `ink`, `bg`, `on-fill` values.
+- **LCR-2** Header: elbow top-left (column 152 px + arm 60 px, height 72, outer radius 60, inner radius 30, `tone-1`),
+  right of it a 24 px bar of segments (title, panel kind, tone blocks, rounded end) and below it a 43 px menu row:
+  *Left · File · Command · Right* as rectangular segments, the title, then *Hidden*, *Find*, *Settings*, *Classic*.
+  The pull-down menus work as in the classic look.
+- **LCR-3** Side column (152 px): the ten function keys as rectangular buttons (`F5 Copy` …, 40 px, alternating tones,
+  *Quit* in `tone-5`), a fill segment below. It replaces the key bar at the bottom.
+- **LCR-4** Footer: elbow bottom-left, the command line as a field with a *Command* label segment (same behaviour and
+  keys as the classic command line), and a 24 px status bar: status text, update (a click installs it), remote-control
+  level, user. Gaps between all segments are 5 px.
+- **LCR-5** Panels: no card, no shadow. Header band (`tone-1` for the active panel, `tone-3` otherwise) with the panel
+  name and sort mode, path in `tone-4`, column titles in the muted ink, rows without stripes. Cursor = `accent` pill with
+  rounded left end and dark text; marked files = `tone-4`, bold, filled dot; folder = filled dot, file = hollow ring,
+  no file icons. Footer: three segments (items · free space · marked).
+- **LCR-6** Type: Antonio Regular and Bold (SIL OFL, `assets/fonts/`, bundled in the binary) for the whole interface in
+  the LCARS look; labels, buttons and menu items are uppercase, file names keep their case. Minimum size 14 px.
+- **LCR-7** Dialogs: a section header (pill bar, black title block) instead of the title; buttons are tone fills
+  (primary = `tone-1` pill), fields have a 2 px `rule` border; the permission question (REM-5) uses the Alert look.
+- **LCR-9** Window controls: the LCARS look hides the macOS window buttons and draws its own at the right end of the
+  header bar – *minimise* (`win-min`), *maximise / restore* (`win-max`) and *close* (`win-close`, rounded outer
+  corner), three square 54 px segments with a 5 px gap, each with a symbol (dash, square, cross) and a tooltip. Close
+  behaves like *Quit* (including the confirmation). The header is also the drag area; a double click maximises.
+  Switching back to the classic look shows the macOS buttons again.
+- **LCR-8** Not part of this release: the borderless transparent window of the design system's app mode, the key
+  sounds, a user-defined palette.

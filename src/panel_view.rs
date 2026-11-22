@@ -16,16 +16,42 @@ impl App {
     pub fn draw_listing(&mut self, ui: &mut egui::Ui, idx: usize, rect: Rect) {
         let pal = self.pal;
         let active = idx == self.active;
-        let fs = self.settings.font_size;
+        let fs = if pal.lcars { self.settings.font_size * 1.2 } else { self.settings.font_size };
         let font = FontId::proportional(fs);
         let small = FontId::proportional(fs - 1.5);
         let row_h = (fs + 9.0).round();
         self.card(ui, rect, active);
         let painter = ui.painter_at(rect);
 
+        // LCARS look (LCR-5): a header band of three segments above the path.
+        let band_h = if pal.lcars { 24.0 } else { 0.0 };
+        if pal.lcars {
+            let tone = if active { pal.tones[0] } else { pal.tones[2] };
+            let side = if idx == 0 { "Left panel" } else { "Right panel" };
+            let sort = self.panels[idx].sort.mode.label();
+            let lst = match self.panels[idx].listing {
+                Listing::Full => "Full",
+                Listing::Brief => "Brief",
+                Listing::Long => "Long",
+            };
+            let g = 5.0;
+            let (w2, w3) = (96.0, 64.0);
+            let r1 = Rect::from_min_max(rect.min, Pos2::new(rect.right() - w2 - w3 - 2.0 * g, rect.top() + band_h));
+            let r2 = Rect::from_min_size(Pos2::new(r1.right() + g, rect.top()), Vec2::new(w2, band_h));
+            let r3 = Rect::from_min_size(Pos2::new(r2.right() + g, rect.top()), Vec2::new(w3, band_h));
+            let cr = |nw: u8, ne: u8, sw: u8, se: u8| egui::CornerRadius { nw, ne, sw, se };
+            painter.rect_filled(r1, cr(12, 0, 12, 0), tone);
+            painter.rect_filled(r2, 0.0, pal.tones[1]);
+            painter.rect_filled(r3, cr(0, 12, 0, 12), pal.tones[3]);
+            let cap = FontId::proportional(15.0);
+            painter.text(Pos2::new(r1.left() + 14.0, r1.center().y + 1.0), Align2::LEFT_CENTER, side.to_uppercase(), cap.clone(), pal.on_fill);
+            painter.text(Pos2::new(r2.right() - 10.0, r2.center().y + 1.0), Align2::RIGHT_CENTER, sort.to_uppercase(), cap.clone(), pal.on_fill);
+            painter.text(Pos2::new(r3.right() - 10.0, r3.center().y + 1.0), Align2::RIGHT_CENTER, lst.to_uppercase(), cap, pal.on_fill);
+        }
+
         // ---- Path bar (breadcrumbs) -----------------------------------------
         let path_h = 32.0;
-        let path_bar = Rect::from_min_size(rect.min, Vec2::new(rect.width(), path_h));
+        let path_bar = Rect::from_min_size(rect.min + Vec2::new(0.0, band_h), Vec2::new(rect.width(), path_h));
         let mut crumbs: Vec<(String, PathBuf)> = Vec::new();
         let dir = self.panels[idx].dir.clone();
         let home = fsutil::home_dir();
@@ -101,7 +127,7 @@ impl App {
         painter.hline(rect.left()..=rect.right(), path_bar.bottom(), Stroke::new(1.0_f32, pal.separator));
 
         // ---- Areas ----------------------------------------------------------
-        let footer_h = if self.settings.show_mini_status { 28.0 } else { 0.0 };
+        let footer_h = if self.settings.show_mini_status { if pal.lcars { 36.0 } else { 28.0 } } else { 0.0 };
         let inner = Rect::from_min_max(Pos2::new(rect.left() + 6.0, path_bar.bottom()), Pos2::new(rect.right() - 6.0, rect.bottom() - footer_h));
         let header = Rect::from_min_size(inner.min, Vec2::new(inner.width(), row_h + 2.0));
         let list = Rect::from_min_max(Pos2::new(inner.left(), header.bottom() + 2.0), Pos2::new(inner.right(), inner.bottom()));
@@ -251,15 +277,27 @@ impl App {
             let e = &p.entries[i];
             let is_cursor = i == p.cursor;
             let sel_bar = rr.shrink2(Vec2::new(2.0, 1.0));
+            // LCARS look: the selection is a pill with a rounded left end.
+            let sel_r: egui::CornerRadius = if pal.lcars {
+                let r = (sel_bar.height() / 2.0) as u8;
+                egui::CornerRadius { nw: r, sw: r, ne: 0, se: 0 }
+            } else {
+                egui::CornerRadius::same(5)
+            };
             if is_cursor && active {
-                painter_list.rect_filled(sel_bar, 5.0, pal.accent);
+                painter_list.rect_filled(sel_bar, sel_r, pal.accent);
             } else if e.marked {
-                painter_list.rect_filled(sel_bar, 5.0, pal.marked_bg);
+                painter_list.rect_filled(sel_bar, sel_r, pal.marked_bg);
                 if is_cursor {
-                    painter_list.rect_stroke(sel_bar, 5.0, Stroke::new(1.5_f32, pal.sel_inactive), egui::StrokeKind::Inside);
+                    painter_list.rect_stroke(sel_bar, sel_r, Stroke::new(1.5_f32, pal.sel_inactive), egui::StrokeKind::Inside);
                 }
             } else if is_cursor {
-                painter_list.rect_filled(sel_bar, 5.0, pal.sel_inactive);
+                let c = if pal.lcars { pal.tones[2] } else { pal.sel_inactive };
+                if pal.lcars {
+                    painter_list.rect_stroke(sel_bar, sel_r, Stroke::new(2.0_f32, c), egui::StrokeKind::Inside);
+                } else {
+                    painter_list.rect_filled(sel_bar, sel_r, c);
+                }
             }
             let on_accent = is_cursor && active;
             let fg = if on_accent {
@@ -282,8 +320,9 @@ impl App {
                 name = format!("✓ {}", name);
             }
             let max_w = name_x1 - icon.right() - 16.0;
-            let shown = fit_text(ui, &name, &font, max_w);
-            painter_list.text(Pos2::new(icon.right() + 7.0, ty), Align2::LEFT_CENTER, shown, font.clone(), fg);
+            let name_font = if pal.lcars && e.marked { FontId::new(fs, egui::FontFamily::Name("lcars-bold".into())) } else { font.clone() };
+            let shown = fit_text(ui, &name, &name_font, max_w);
+            painter_list.text(Pos2::new(icon.right() + 7.0, ty), Align2::LEFT_CENTER, shown, name_font, fg);
             match listing {
                 Listing::Full => {
                     let date = if e.is_updir() { String::new() } else { finder_date(e.mtime) };
@@ -323,7 +362,34 @@ impl App {
         }
 
         // ---- Footer ---------------------------------------------------------
-        if footer_h > 0.0 {
+        if footer_h > 0.0 && pal.lcars {
+            // LCARS look (LCR-5): items · free space · marked, as three segments.
+            let g = 5.0;
+            let h = footer_h - 6.0;
+            let top = footer.top() + 3.0;
+            let items = p.entries.iter().filter(|e| !e.is_updir()).count();
+            let a = format!("{} item{}", items, if items == 1 { "" } else { "s" });
+            let free = fsutil::free_space(&p.dir).map(|(f, _)| format!("{} free", fsutil::size_human(f).replace(" K", " KB").replace(" M", " MB").replace(" G", " GB").replace(" T", " TB"))).unwrap_or_default();
+            let (n, bytes) = p.marked_totals();
+            let c = if n > 0 { format!("{} marked · {}", n, fsutil::size_human(bytes).replace(" K", " KB").replace(" M", " MB").replace(" G", " GB").replace(" T", " TB")) } else { String::new() };
+            let cap = FontId::proportional(fs - 1.0);
+            let wa = painter.layout_no_wrap(a.to_uppercase(), cap.clone(), pal.on_fill).size().x + 28.0;
+            let ra = Rect::from_min_size(Pos2::new(rect.left(), top), Vec2::new(wa, h));
+            painter.rect_filled(ra, egui::CornerRadius { nw: (h / 2.0) as u8, sw: (h / 2.0) as u8, ne: 0, se: 0 }, pal.tones[2]);
+            painter.text(ra.center(), Align2::CENTER_CENTER, a.to_uppercase(), cap.clone(), pal.on_fill);
+            let wc = if c.is_empty() { 0.0 } else { painter.layout_no_wrap(c.to_uppercase(), cap.clone(), pal.on_fill).size().x + 32.0 };
+            let rc_left = rect.right() - wc;
+            let rb = Rect::from_min_max(Pos2::new(ra.right() + g, top), Pos2::new(if wc > 0.0 { rc_left - g } else { rect.right() }, top + h));
+            let rad_b = if wc > 0.0 { egui::CornerRadius::ZERO } else { egui::CornerRadius { nw: 0, sw: 0, ne: (h / 2.0) as u8, se: (h / 2.0) as u8 } };
+            painter.rect_filled(rb, rad_b, pal.tones[1]);
+            let mid = if let Some(err) = &p.error { err.clone() } else if let Some(q) = &p.quick_search { format!("search: {}▏", q) } else if let Some(f) = &p.filter { format!("filter {}  ·  {}", f, free) } else { free };
+            painter.text(Pos2::new(rb.right() - 12.0, rb.center().y), Align2::RIGHT_CENTER, fit_text(ui, &mid.to_uppercase(), &cap, rb.width() - 20.0), cap.clone(), pal.on_fill);
+            if wc > 0.0 {
+                let rc = Rect::from_min_max(Pos2::new(rc_left, top), Pos2::new(rect.right(), top + h));
+                painter.rect_filled(rc, egui::CornerRadius { nw: 0, sw: 0, ne: (h / 2.0) as u8, se: (h / 2.0) as u8 }, pal.warning);
+                painter.text(rc.center(), Align2::CENTER_CENTER, c.to_uppercase(), cap, pal.on_fill);
+            }
+        } else if footer_h > 0.0 {
         painter.hline(rect.left()..=rect.right(), footer.top(), Stroke::new(1.0_f32, pal.separator));
         let fy = footer.center().y;
         if let Some(err) = &p.error {

@@ -19,6 +19,36 @@ pub enum ThemeChoice {
     Dark,
 }
 
+/// The overall look of the app (LCR-1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Look {
+    #[default]
+    Classic,
+    Lcars,
+}
+
+/// Palette of the LCARS look (LCR-1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LcarsTheme {
+    #[default]
+    Tng,
+    Nemesis,
+    Picard,
+    RedAlert,
+}
+
+impl LcarsTheme {
+    pub const ALL: [LcarsTheme; 4] = [LcarsTheme::Tng, LcarsTheme::Nemesis, LcarsTheme::Picard, LcarsTheme::RedAlert];
+    pub fn label(self) -> &'static str {
+        match self {
+            LcarsTheme::Tng => "TNG – orange, lilac, blue",
+            LcarsTheme::Nemesis => "Nemesis – blue and orange",
+            LcarsTheme::Picard => "Picard – steel blue, cyan",
+            LcarsTheme::RedAlert => "Red alert – all red",
+        }
+    }
+}
+
 /// How much an AI agent may do through the MCP interface (REM-1). Each level includes the ones below.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum McpLevel {
@@ -99,6 +129,10 @@ pub struct Settings {
     pub wheel_dir: WheelDir,
     /// What agents may do through the MCP interface (REM-1).
     pub mcp_level: McpLevel,
+    /// Classic or LCARS look (LCR-1).
+    pub look: Look,
+    /// Palette of the LCARS look (LCR-1).
+    pub lcars_theme: LcarsTheme,
     /// File changes by agents need an approval in the app (REM-1).
     pub mcp_ask: bool,
     /// List Time Machine volumes in Places (PNL-16).
@@ -148,6 +182,8 @@ impl Default for Settings {
             dir_sizes: true,
             wheel_dir: WheelDir::Down,
             mcp_level: McpLevel::Off,
+            look: Look::Classic,
+            lcars_theme: LcarsTheme::Tng,
             mcp_ask: true,
             show_timemachine: false,
             check_updates: true,

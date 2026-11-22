@@ -7,6 +7,7 @@ mod dialogs;
 mod dialogs2;
 mod dirsize;
 mod control;
+mod lcars;
 mod mounts;
 mod remote;
 mod menus;
