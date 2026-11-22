@@ -19,6 +19,29 @@ pub enum ThemeChoice {
     Dark,
 }
 
+/// Direction of a notched mouse wheel (PNL-15).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WheelDir {
+    /// Follow the macOS "natural scrolling" setting.
+    System,
+    /// Turning the wheel towards you moves down.
+    #[default]
+    Down,
+    /// Turning the wheel towards you moves up.
+    Up,
+}
+
+impl WheelDir {
+    pub const ALL: [WheelDir; 3] = [WheelDir::System, WheelDir::Down, WheelDir::Up];
+    pub fn label(self) -> &'static str {
+        match self {
+            WheelDir::System => "Like the system",
+            WheelDir::Down => "Turn towards me = down",
+            WheelDir::Up => "Turn towards me = up",
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -42,9 +65,8 @@ pub struct Settings {
     pub mix_all_files: bool,
     /// Calculate folder sizes in the background (PNL-14).
     pub dir_sizes: bool,
-    /// Wheel of a notched mouse: turning it towards you moves down, whatever the system
-    /// "natural scrolling" setting says (PNL-15). Trackpads are not affected.
-    pub classic_wheel: bool,
+    /// Direction of a notched mouse wheel (PNL-15). Trackpads are not affected.
+    pub wheel_dir: WheelDir,
     /// List Time Machine volumes in Places (PNL-16).
     pub show_timemachine: bool,
     /// Look for a new release at startup (SPEC §12).
@@ -90,7 +112,7 @@ impl Default for Settings {
             lynx_motion: false,
             mix_all_files: false,
             dir_sizes: true,
-            classic_wheel: true,
+            wheel_dir: WheelDir::Down,
             show_timemachine: false,
             check_updates: true,
             confirm_delete: true,

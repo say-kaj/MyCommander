@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.2.6
+- Mouse wheel direction is now a three-way choice in Settings ▸ Panels: like the system, turn towards me = down (default), turn towards me = up (SPEC PNL-15).
+
 ## 1.2.5
 - Fix: turning the mouse wheel froze the app (busy cursor) in 1.2.4; the wheel handling no longer locks the UI context.
 

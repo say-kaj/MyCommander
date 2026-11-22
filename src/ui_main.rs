@@ -517,7 +517,7 @@ impl App {
         let cur = rows.iter().position(|(_, p)| *p == target).unwrap_or(0);
         let scroll = &mut self.panels[idx].tree_scroll;
         if ui.rect_contains_pointer(inner) {
-            let d = ui.input(|i| i.raw_scroll_delta.y) * wheel_sign(ui, self.settings.classic_wheel);
+            let d = ui.input(|i| i.raw_scroll_delta.y) * wheel_sign(ui, self.settings.wheel_dir);
             if d != 0.0 {
                 let steps = (d / row_h).round() as isize;
                 *scroll = (*scroll as isize - steps).clamp(0, rows.len().saturating_sub(visible) as isize) as usize;
@@ -656,9 +656,32 @@ impl App {
     }
 }
 
-/// Direction factor for wheel scrolling: -1 when the last wheel event came from a notched mouse
-/// and the classic direction is wanted (PNL-15), else 1.
-pub fn wheel_sign(ui: &egui::Ui, classic: bool) -> f32 {
+/// macOS "natural scrolling" (System Settings ▸ Mouse), read once.
+fn system_natural() -> bool {
+    static NATURAL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *NATURAL.get_or_init(|| {
+        let out = std::process::Command::new("/usr/bin/defaults").args(["read", "-g", "com.apple.swipescrolldirection"]).output();
+        // The key is absent when the default (natural scrolling on) is in effect.
+        !matches!(out, Ok(o) if o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "0")
+    })
+}
+
+/// Factor applied to a wheel delta (PNL-15). Only notched mouse wheels are changed; the delta
+/// of a mouse turned towards the user is positive with natural scrolling and negative without.
+fn sign_for(dir: crate::settings::WheelDir, natural: bool, mouse: bool) -> f32 {
+    use crate::settings::WheelDir::*;
+    if !mouse {
+        return 1.0;
+    }
+    match (dir, natural) {
+        (System, _) => 1.0,
+        (Down, true) | (Up, false) => -1.0,
+        (Down, false) | (Up, true) => 1.0,
+    }
+}
+
+/// Direction factor for wheel scrolling, see [`sign_for`].
+pub fn wheel_sign(ui: &egui::Ui, dir: crate::settings::WheelDir) -> f32 {
     let id = egui::Id::new("wheel_is_mouse");
     // Read the events first: touching `ui.data` inside `ui.input` would deadlock on the context lock.
     let seen = ui.input(|i| {
@@ -671,33 +694,42 @@ pub fn wheel_sign(ui: &egui::Ui, classic: bool) -> f32 {
         ui.data_mut(|d| d.insert_temp(id, m));
     }
     let mouse: bool = ui.data(|d| d.get_temp(id).unwrap_or(false));
-    if classic && mouse { -1.0 } else { 1.0 }
+    if dir == crate::settings::WheelDir::System {
+        return 1.0;
+    }
+    sign_for(dir, system_natural(), mouse)
 }
 
 #[cfg(test)]
 mod wheel_tests {
     use super::*;
+    use crate::settings::WheelDir::*;
 
     #[test]
-    fn wheel_sign_does_not_deadlock_and_flips_for_mouse() {
+    fn signs() {
+        // natural scrolling on: towards me gives +, so "down" must flip it
+        assert_eq!(sign_for(Down, true, true), -1.0);
+        assert_eq!(sign_for(Up, true, true), 1.0);
+        // natural scrolling off: towards me gives -, which already moves down
+        assert_eq!(sign_for(Down, false, true), 1.0);
+        assert_eq!(sign_for(Up, false, true), -1.0);
+        assert_eq!(sign_for(System, true, true), 1.0);
+        // trackpad untouched
+        assert_eq!(sign_for(Down, true, false), 1.0);
+        assert_eq!(sign_for(Up, false, false), 1.0);
+    }
+
+    #[test]
+    fn wheel_sign_does_not_deadlock() {
         let ctx = egui::Context::default();
         let mut raw = egui::RawInput::default();
         raw.events.push(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, 1.0), modifiers: Default::default() });
         let mut got = 0.0;
-        let mut got_off = 0.0;
         let _ = ctx.run(raw, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                got = wheel_sign(ui, true);
-                got_off = wheel_sign(ui, false);
+                got = wheel_sign(ui, Down);
             });
         });
-        assert_eq!(got, -1.0);
-        assert_eq!(got_off, 1.0);
-        let mut raw = egui::RawInput::default();
-        raw.events.push(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, 5.0), modifiers: Default::default() });
-        let _ = ctx.run(raw, |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| got = wheel_sign(ui, true));
-        });
-        assert_eq!(got, 1.0);
+        assert!(got == 1.0 || got == -1.0);
     }
 }

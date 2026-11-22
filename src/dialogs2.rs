@@ -544,7 +544,14 @@ fn options_page(ui: &mut egui::Ui, page: OptPage, s: &mut Settings) {
             ui.checkbox(&mut s.show_hidden, "Show hidden files");
             ui.checkbox(&mut s.dir_sizes, "Calculate folder sizes in the background");
             ui.checkbox(&mut s.show_timemachine, "Show Time Machine volumes in Places");
-            ui.checkbox(&mut s.classic_wheel, "Mouse wheel: turn towards you = move down");
+            ui.horizontal(|ui| {
+                ui.label("Mouse wheel");
+                egui::ComboBox::from_id_salt("wheel_dir").selected_text(s.wheel_dir.label()).width(220.0).show_ui(ui, |ui| {
+                    for d in crate::settings::WheelDir::ALL {
+                        ui.selectable_value(&mut s.wheel_dir, d, d.label());
+                    }
+                });
+            });
             ui.checkbox(&mut s.mix_all_files, "Don't list folders first");
             ui.checkbox(&mut s.show_mini_status, "Show info line below the list");
             heading(ui, "Arrangement");

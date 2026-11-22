@@ -133,10 +133,11 @@ describes *behaviour*. Binary addresses are given as provenance only.
   otherwise divided by 1024 (rounded: `(x+512)>>10`) and suffixed `K M G T P`
   until it fits.
 
-- **PNL-15** Mouse wheel (setting `classic_wheel`, Settings ▸ Panels, default **on**): the wheel of a
-  notched mouse (egui `MouseWheelUnit::Line`) moves the cursor down when turned towards the user,
-  independent of the system "natural scrolling" setting. Trackpads (pixel deltas) keep following
-  the system setting. Applies to the file lists and the directory tree.
+- **PNL-15** Mouse wheel (setting `wheel_dir`, Settings ▸ Panels): direction of a notched mouse
+  wheel (egui `MouseWheelUnit::Line`) in the file lists and the directory tree. Values: *Like the
+  system* (follows macOS "natural scrolling"), *Turn towards me = down* (**default**) and *Turn
+  towards me = up*; the two fixed values are independent of the system setting (read once at start
+  from `com.apple.swipescrolldirection`). Trackpads (pixel deltas) always follow the system.
 - **PNL-16** Places (⌃\\ / ⌘D, Command ▸ Places): one dialog for every place a panel can go to, in
   three sections: **Mounted** (all browsable volumes from the system mount table via
   `getmntinfo(3)` – local disks, SMB, NFS, AFP, wherever they are mounted, not only below
