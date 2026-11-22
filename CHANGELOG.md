@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.2.5
+- Fix: turning the mouse wheel froze the app (busy cursor) in 1.2.4; the wheel handling no longer locks the UI context.
+
 ## 1.2.4
 - **Places** (⌘D) replaces the Directory hotlist: one list of all mounted volumes (local disks, SMB/NFS shares wherever they are mounted, with free space and *Eject*), SSH servers from `~/.ssh/config` and your favorites. Time Machine volumes are hidden unless enabled in Settings ▸ Panels (SPEC PNL-16).
 - Mouse wheel: on a notched mouse, turning the wheel towards you moves the cursor down regardless of the system "natural scrolling" setting; switchable in Settings ▸ Panels (SPEC PNL-15). Trackpads are unchanged.

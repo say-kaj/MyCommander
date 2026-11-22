@@ -660,14 +660,44 @@ impl App {
 /// and the classic direction is wanted (PNL-15), else 1.
 pub fn wheel_sign(ui: &egui::Ui, classic: bool) -> f32 {
     let id = egui::Id::new("wheel_is_mouse");
-    ui.input(|i| {
-        for e in &i.events {
-            if let egui::Event::MouseWheel { unit, .. } = e {
-                let mouse = !matches!(unit, egui::MouseWheelUnit::Point);
-                ui.data_mut(|d| d.insert_temp(id, mouse));
-            }
-        }
+    // Read the events first: touching `ui.data` inside `ui.input` would deadlock on the context lock.
+    let seen = ui.input(|i| {
+        i.events.iter().filter_map(|e| match e {
+            egui::Event::MouseWheel { unit, .. } => Some(!matches!(unit, egui::MouseWheelUnit::Point)),
+            _ => None,
+        }).last()
     });
+    if let Some(m) = seen {
+        ui.data_mut(|d| d.insert_temp(id, m));
+    }
     let mouse: bool = ui.data(|d| d.get_temp(id).unwrap_or(false));
     if classic && mouse { -1.0 } else { 1.0 }
+}
+
+#[cfg(test)]
+mod wheel_tests {
+    use super::*;
+
+    #[test]
+    fn wheel_sign_does_not_deadlock_and_flips_for_mouse() {
+        let ctx = egui::Context::default();
+        let mut raw = egui::RawInput::default();
+        raw.events.push(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, 1.0), modifiers: Default::default() });
+        let mut got = 0.0;
+        let mut got_off = 0.0;
+        let _ = ctx.run(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                got = wheel_sign(ui, true);
+                got_off = wheel_sign(ui, false);
+            });
+        });
+        assert_eq!(got, -1.0);
+        assert_eq!(got_off, 1.0);
+        let mut raw = egui::RawInput::default();
+        raw.events.push(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, 5.0), modifiers: Default::default() });
+        let _ = ctx.run(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| got = wheel_sign(ui, true));
+        });
+        assert_eq!(got, 1.0);
+    }
 }
