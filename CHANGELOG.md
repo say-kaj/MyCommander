@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.4
+- **Places** (⌘D) replaces the Directory hotlist: one list of all mounted volumes (local disks, SMB/NFS shares wherever they are mounted, with free space and *Eject*), SSH servers from `~/.ssh/config` and your favorites. Time Machine volumes are hidden unless enabled in Settings ▸ Panels (SPEC PNL-16).
+- Mouse wheel: on a notched mouse, turning the wheel towards you moves the cursor down regardless of the system "natural scrolling" setting; switchable in Settings ▸ Panels (SPEC PNL-15). Trackpads are unchanged.
+
 ## 1.2.3
 - Fix: after copy/move/delete the panels showed the new files only after the next mouse move or key press; they now refresh immediately.
 - Faster copy/move/delete: the file count before the job uses the fast bulk scan, files on the same APFS volume are cloned instantly (like Finder), and background folder sizes pause while a job runs (SPEC OPS-6a).

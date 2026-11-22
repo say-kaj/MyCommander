@@ -543,6 +543,8 @@ fn options_page(ui: &mut egui::Ui, page: OptPage, s: &mut Settings) {
             heading(ui, "Listing");
             ui.checkbox(&mut s.show_hidden, "Show hidden files");
             ui.checkbox(&mut s.dir_sizes, "Calculate folder sizes in the background");
+            ui.checkbox(&mut s.show_timemachine, "Show Time Machine volumes in Places");
+            ui.checkbox(&mut s.classic_wheel, "Mouse wheel: turn towards you = move down");
             ui.checkbox(&mut s.mix_all_files, "Don't list folders first");
             ui.checkbox(&mut s.show_mini_status, "Show info line below the list");
             heading(ui, "Arrangement");

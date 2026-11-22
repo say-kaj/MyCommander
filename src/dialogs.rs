@@ -452,33 +452,74 @@ impl App {
                     keep = Some(Dialog::FindResults { shared, cursor });
                 }
             }
-            Dialog::Hotlist { mut cursor } => {
-                let list = self.settings.hotlist.clone();
-                if take(ctx, Key::ArrowDown, NONE) && cursor + 1 < list.len() {
+            Dialog::Hotlist { mut cursor, mut mounts, hosts } => {
+                #[derive(Clone)]
+                enum Item {
+                    Mount(usize),
+                    Server(String),
+                    Fav(usize),
+                }
+                let favs = self.settings.hotlist.clone();
+                let mut items: Vec<Item> = (0..mounts.len()).map(Item::Mount).collect();
+                items.extend(hosts.iter().cloned().map(Item::Server));
+                items.extend((0..favs.len()).map(Item::Fav));
+                if take(ctx, Key::ArrowDown, NONE) && cursor + 1 < items.len() {
                     cursor += 1;
                 }
                 if take(ctx, Key::ArrowUp, NONE) {
                     cursor = cursor.saturating_sub(1);
                 }
-                let mut go: Option<PathBuf> = None;
-                let (mut add, mut remove, mut close) = (false, false, false);
-                self.dialog_window(ctx, "Directory hotlist", false, |ui| {
-                    if list.is_empty() {
-                        ui.label("The hotlist is empty. Use \"Add current\" to remember a folder.");
-                    }
-                    for (i, p) in list.iter().enumerate() {
-                        let r = ui.selectable_label(i == cursor, egui::RichText::new(fsutil::tilde(p)).monospace());
-                        if r.clicked() {
-                            cursor = i;
+                cursor = cursor.min(items.len().saturating_sub(1));
+                let mut go: Option<Item> = None;
+                let (mut add, mut remove, mut eject, mut close) = (false, false, false, take(ctx, Key::E, CMD));
+                let dim = self.pal.text_dim;
+                self.dialog_window(ctx, "Places", false, |ui| {
+                    ui.set_min_width(560.0);
+                    let section = |ui: &mut egui::Ui, t: &str| {
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new(t).strong().color(dim));
+                    };
+                    egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+                        let mut last = 0;
+                        for (i, it) in items.iter().enumerate() {
+                            let kind = match it {
+                                Item::Mount(_) => 1,
+                                Item::Server(_) => 2,
+                                Item::Fav(_) => 3,
+                            };
+                            if kind != last {
+                                section(ui, ["", "Mounted", "Servers (~/.ssh/config)", "Favorites"][kind]);
+                                last = kind;
+                            }
+                            let text = match it {
+                                Item::Mount(m) => {
+                                    let m = &mounts[*m];
+                                    let icon = if m.network { "🌐" } else if m.is_root { "💻" } else { "💾" };
+                                    let free = if m.total > 0 { format!("{} free", fsutil::size_human(m.free)) } else { String::new() };
+                                    format!("{icon} {:<22} {:<22} {}", crate::util::truncate_middle(&m.name, 22), crate::util::truncate_middle(&m.kind(), 22), free)
+                                }
+                                Item::Server(h) => format!("🔑 {h}"),
+                                Item::Fav(f) => fsutil::tilde(&favs[*f]),
+                            };
+                            let r = ui.selectable_label(i == cursor, egui::RichText::new(text).monospace());
+                            if r.clicked() {
+                                cursor = i;
+                            }
+                            if r.double_clicked() {
+                                go = Some(it.clone());
+                            }
                         }
-                        if r.double_clicked() {
-                            go = Some(p.clone());
+                        if items.is_empty() {
+                            ui.label("Nothing here yet. Use \"Add current\" to remember a folder.");
                         }
-                    }
+                    });
                     ui.separator();
                     ui.horizontal(|ui| {
-                        if ui.button("Change to").clicked() {
-                            go = list.get(cursor).cloned();
+                        if ui.button("Go").clicked() {
+                            go = items.get(cursor).cloned();
+                        }
+                        if ui.button("Eject").on_hover_text("Unmount the selected volume (⌘E)").clicked() {
+                            eject = true;
                         }
                         if ui.button("Add current").clicked() {
                             add = true;
@@ -492,25 +533,53 @@ impl App {
                     });
                 });
                 if enter {
-                    go = list.get(cursor).cloned();
+                    go = items.get(cursor).cloned();
                 }
+                let cur = items.get(cursor).cloned();
+                let tm = self.settings.show_timemachine;
                 if add {
                     let d = self.act().dir.clone();
                     if !self.settings.hotlist.contains(&d) {
                         self.settings.hotlist.push(d);
                         let _ = self.settings.save();
                     }
-                    keep = Some(Dialog::Hotlist { cursor });
+                    keep = Some(Dialog::Hotlist { cursor, mounts, hosts });
                 } else if remove {
-                    if cursor < self.settings.hotlist.len() {
-                        self.settings.hotlist.remove(cursor);
-                        let _ = self.settings.save();
+                    if let Some(Item::Fav(f)) = cur {
+                        if f < self.settings.hotlist.len() {
+                            self.settings.hotlist.remove(f);
+                            let _ = self.settings.save();
+                        }
+                        cursor = cursor.saturating_sub(1);
                     }
-                    keep = Some(Dialog::Hotlist { cursor: cursor.saturating_sub(1) });
-                } else if let Some(p) = go {
-                    then = Some(Box::new(move |app, _| app.chdir_active(&p)));
+                    keep = Some(Dialog::Hotlist { cursor, mounts, hosts });
+                } else if eject {
+                    if let Some(Item::Mount(m)) = cur {
+                        crate::mounts::eject(mounts[m].path.clone(), ctx.clone());
+                        mounts = crate::mounts::list(tm);
+                        keep = Some(Dialog::Hotlist { cursor, mounts, hosts });
+                    } else {
+                        keep = Some(Dialog::Hotlist { cursor, mounts, hosts });
+                    }
+                } else if let Some(it) = go {
+                    match it {
+                        Item::Mount(m) => {
+                            let p = mounts[m].path.clone();
+                            then = Some(Box::new(move |app, _| app.chdir_active(&p)));
+                        }
+                        Item::Fav(f) => {
+                            let p = favs[f].clone();
+                            then = Some(Box::new(move |app, _| app.chdir_active(&p)));
+                        }
+                        Item::Server(h) => {
+                            then = Some(Box::new(move |app, ctx| {
+                                let panel = app.active;
+                                app.connect_remote(ctx, panel, crate::vfs::Scheme::Sftp, h)
+                            }));
+                        }
+                    }
                 } else if !(close || esc) {
-                    keep = Some(Dialog::Hotlist { cursor });
+                    keep = Some(Dialog::Hotlist { cursor, mounts, hosts });
                 }
             }
             Dialog::Help => {

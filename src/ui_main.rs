@@ -517,7 +517,7 @@ impl App {
         let cur = rows.iter().position(|(_, p)| *p == target).unwrap_or(0);
         let scroll = &mut self.panels[idx].tree_scroll;
         if ui.rect_contains_pointer(inner) {
-            let d = ui.input(|i| i.raw_scroll_delta.y);
+            let d = ui.input(|i| i.raw_scroll_delta.y) * wheel_sign(ui, self.settings.classic_wheel);
             if d != 0.0 {
                 let steps = (d / row_h).round() as isize;
                 *scroll = (*scroll as isize - steps).clamp(0, rows.len().saturating_sub(visible) as isize) as usize;
@@ -654,4 +654,20 @@ impl App {
             self.panels[idx].view = PanelView::Listing;
         }
     }
+}
+
+/// Direction factor for wheel scrolling: -1 when the last wheel event came from a notched mouse
+/// and the classic direction is wanted (PNL-15), else 1.
+pub fn wheel_sign(ui: &egui::Ui, classic: bool) -> f32 {
+    let id = egui::Id::new("wheel_is_mouse");
+    ui.input(|i| {
+        for e in &i.events {
+            if let egui::Event::MouseWheel { unit, .. } = e {
+                let mouse = !matches!(unit, egui::MouseWheelUnit::Point);
+                ui.data_mut(|d| d.insert_temp(id, mouse));
+            }
+        }
+    });
+    let mouse: bool = ui.data(|d| d.get_temp(id).unwrap_or(false));
+    if classic && mouse { -1.0 } else { 1.0 }
 }

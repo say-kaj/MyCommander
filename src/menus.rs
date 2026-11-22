@@ -82,7 +82,7 @@ pub fn items(idx: usize) -> Vec<MItem> {
             sep(),
             it("Command history", "⌥H", Action::CommandHistory),
             it("Viewed/edited files history", "⌥⇧E", Action::FileHistory),
-            it("Directory hotlist", "⌃\\", Action::Hotlist),
+            it("Places", "⌃\\", Action::Hotlist),
             it("Background jobs", "⌃X J", Action::BackgroundJobs),
             sep(),
             it("Edit menu file", "", Action::EditMenuFile),

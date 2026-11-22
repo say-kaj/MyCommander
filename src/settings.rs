@@ -42,6 +42,11 @@ pub struct Settings {
     pub mix_all_files: bool,
     /// Calculate folder sizes in the background (PNL-14).
     pub dir_sizes: bool,
+    /// Wheel of a notched mouse: turning it towards you moves down, whatever the system
+    /// "natural scrolling" setting says (PNL-15). Trackpads are not affected.
+    pub classic_wheel: bool,
+    /// List Time Machine volumes in Places (PNL-16).
+    pub show_timemachine: bool,
     /// Look for a new release at startup (SPEC §12).
     pub check_updates: bool,
     // Confirmation
@@ -85,6 +90,8 @@ impl Default for Settings {
             lynx_motion: false,
             mix_all_files: false,
             dir_sizes: true,
+            classic_wheel: true,
+            show_timemachine: false,
             check_updates: true,
             confirm_delete: true,
             confirm_overwrite: true,

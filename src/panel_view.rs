@@ -218,7 +218,7 @@ impl App {
         }
         let list_resp = ui.interact(list, ui.id().with(("list", idx)), Sense::click());
         if ui.rect_contains_pointer(list) {
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            let scroll = ui.input(|i| i.smooth_scroll_delta.y) * crate::ui_main::wheel_sign(ui, self.settings.classic_wheel);
             if scroll.abs() > 0.5 {
                 let acc_id = ui.id().with(("scroll_acc", idx));
                 let mut acc: f32 = ui.data(|d| d.get_temp(acc_id).unwrap_or(0.0)) + scroll;

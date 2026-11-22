@@ -133,6 +133,22 @@ describes *behaviour*. Binary addresses are given as provenance only.
   otherwise divided by 1024 (rounded: `(x+512)>>10`) and suffixed `K M G T P`
   until it fits.
 
+- **PNL-15** Mouse wheel (setting `classic_wheel`, Settings ▸ Panels, default **on**): the wheel of a
+  notched mouse (egui `MouseWheelUnit::Line`) moves the cursor down when turned towards the user,
+  independent of the system "natural scrolling" setting. Trackpads (pixel deltas) keep following
+  the system setting. Applies to the file lists and the directory tree.
+- **PNL-16** Places (⌃\\ / ⌘D, Command ▸ Places): one dialog for every place a panel can go to, in
+  three sections: **Mounted** (all browsable volumes from the system mount table via
+  `getmntinfo(3)` – local disks, SMB, NFS, AFP, wherever they are mounted, not only below
+  `/Volumes` – with name, type/host and free space; the startup volume is listed too; system
+  volumes (`nobrowse`, `/System/…`) and autofs are hidden), **Servers** (host aliases of
+  `~/.ssh/config`, opens an SFTP link in the active panel) and **Favorites** (the hotlist, with
+  *Add current* / *Remove*). Enter or double-click changes into the entry. *Eject* (⌘E) unmounts
+  the selected volume. **Time Machine volumes are hidden by default** (setting
+  `show_timemachine`, Settings ▸ Panels, default **off**); a volume counts as Time Machine when
+  its mount path is below `/Volumes/.timemachine`, its name or device mentions Time Machine, or a
+  local volume holds `Backups.backupdb`. The mount table is read once when the dialog opens and
+  never touches the volumes themselves (a stale network mount must not block the UI).
 - **PNL-12a** Folder sizes (setting `dir_sizes`, Settings ▸ Panels, default **on**): sizes of
   the sub-folders in a local listing are calculated in the background and appear in the Size
   column as they arrive; the UI never waits. Total logical size of all files below the folder,
@@ -265,7 +281,7 @@ Identical in the in-window menu bar, the macOS menu bar and the F9 pull-downs.
   Quick cd, Select group, Unselect group, Invert selection, Exit.
 - **Command:** User menu, Directory tree, Find file, Swap panels, Switch panels on/off,
   Compare directories, Compare files, External panelize, Show directory sizes,
-  Command history, Viewed/edited files history, Directory hotlist,
+  Command history, Viewed/edited files history, Places (formerly Directory hotlist),
   Background jobs, Edit menu file, Save setup.
 - **Settings** is not a pull-down: the menu bar ends with a direct **Settings** button (and ⌘,, and the macOS app menu), so there is no menu with a single entry. *Save setup* lives at the end of the Command menu. **MNU-0** Settings is one window with the tabs *General* (startup, updates, confirmations), *Panels* (listing, folder sizes, arrangement, keyboard), *Appearance* (theme, text size, window elements) and *Quick View*. Changes apply immediately; *Done* (or Esc/Return) closes it. There are no OK/Cancel buttons and no duplicated options.
 - **MNU-1** The user menu (F2) reads `menu.txt` from the config directory; entries
@@ -288,7 +304,7 @@ Taken from mc's `mc.default.keymap` (`[filemanager]`, `[panel]`), plus Mac alias
 | Alt-. (Cmd-Shift-.) | toggle hidden files |
 | Ctrl-Space | directory size |
 | Alt-? (Cmd-F) | find file |
-| Ctrl-\ (Cmd-D) | directory hotlist |
+| Ctrl-\ (Cmd-D) | places (volumes, servers, hotlist) |
 | Alt-T | cycle listing format |
 | Ctrl-S / Alt-S | quick search |
 | Insert / Ctrl-T | mark and move down |
@@ -363,6 +379,7 @@ src/
   vfs.rs          Remote locations: sftp (system sftp) and ftp (system curl), path helpers, ssh host list, download cache
   fsutil.rs       Directory reading, size/date/permission formatting, highlight classes
   update.rs       In-app update check and installer (UPD)
+  mounts.rs       Mount table for Places (getmntinfo; PNL-16)
   dirsize.rs      Background folder sizes (getattrlistbulk worker pool, cache; PNL-12a)
   ops.rs          Background jobs (copy, move, delete, dirsize, find, shell) + Progress
   dialogs.rs      Standard dialogs + progress / overwrite window

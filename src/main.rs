@@ -6,6 +6,7 @@ mod native_menu;
 mod dialogs;
 mod dialogs2;
 mod dirsize;
+mod mounts;
 mod menus;
 mod fsutil;
 mod ops;

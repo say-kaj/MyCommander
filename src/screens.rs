@@ -581,6 +581,10 @@ impl App {
                 self.dialog = Some(crate::app::Dialog::Options { page, s: Box::new(self.settings.clone()) });
             }
         }
+        if self.frame == 80 && std::env::var("MYCMD_SHOT_PLACES").is_ok() {
+            // Test aid: MYCMD_SHOT_PLACES=1 opens the Places dialog for the picture.
+            self.do_action(ctx, crate::app::Action::Hotlist);
+        }
         if self.frame >= 120 && !self.screenshot_requested {
             self.screenshot_requested = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));

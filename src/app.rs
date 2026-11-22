@@ -106,7 +106,7 @@ pub enum Dialog {
     ConfirmExec { name: String },
     Find { start: String, pattern: String, content: String, case: bool, skip_hidden: bool },
     FindResults { shared: Shared, cursor: usize },
-    Hotlist { cursor: usize },
+    Hotlist { cursor: usize, mounts: Vec<crate::mounts::Mount>, hosts: Vec<String> },
     Help,
     About,
 }
@@ -632,7 +632,10 @@ impl App {
                 let start = format!("{}", self.act().dir.display());
                 self.dialog = Some(Dialog::Find { start, pattern: "*".into(), content: String::new(), case: false, skip_hidden: true });
             }
-            Action::Hotlist => self.dialog = Some(Dialog::Hotlist { cursor: 0 }),
+            Action::Hotlist => {
+                let mounts = crate::mounts::list(self.settings.show_timemachine);
+                self.dialog = Some(Dialog::Hotlist { cursor: 0, mounts, hosts: crate::vfs::ssh_hosts() })
+            }
             Action::HotlistAdd => {
                 let d = self.act().dir.clone();
                 if !self.settings.hotlist.contains(&d) {
@@ -1237,6 +1240,14 @@ impl eframe::App for App {
         ctx.request_repaint_after(std::time::Duration::from_secs(60));
         if crate::update::busy() {
             ctx.request_repaint_after(std::time::Duration::from_millis(300));
+        }
+        if let Some(msg) = crate::mounts::take_result() {
+            self.flash(ctx, msg);
+            let tm = self.settings.show_timemachine;
+            if let Some(Dialog::Hotlist { mounts, .. }) = self.dialog.as_mut() {
+                *mounts = crate::mounts::list(tm);
+            }
+            self.reload_both();
         }
         if crate::update::state() == crate::update::State::Restart && !self.quit_asked {
             self.quit_asked = true;
